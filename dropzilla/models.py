@@ -6,60 +6,105 @@ This module will contain:
 - The Bayesian Optimization pipeline using Hyperopt.
 - The final prediction function.
 """
-
-from typing import Any, Dict
-
 import lightgbm as lgb
 import numpy as np
+import pandas as pd
+from typing import Dict, Any, Tuple
+from sklearn.metrics import precision_score
+from hyperopt import fmin, tpe, hp, Trials, STATUS_OK
 
-
-def train_lightgbm_model(
-    X_train: np.ndarray,
-    y_train: np.ndarray,
-    params: Dict[str, Any] | None = None,
-) -> lgb.LGBMClassifier:
-    """Trains a LightGBM classifier with a given set of parameters.
+def train_lightgbm_model(X_train: np.ndarray,
+                         y_train: np.ndarray,
+                         params: Dict[str, Any] = None) -> lgb.LGBMClassifier:
+    """
+    Trains a LightGBM classifier with a given set of parameters.
 
     Args:
-        X_train: The training feature data.
-        y_train: The training target labels.
-        params: A dictionary of parameters to override the defaults. Defaults to
-            ``None``.
+        X_train (np.ndarray): The training feature data.
+        y_train (np.ndarray): The training target labels.
+        params (Dict[str, Any], optional): A dictionary of parameters to override
+                                           the defaults. Defaults to None.
 
     Returns:
-        The trained LightGBM model object.
+        lgb.LGBMClassifier: The trained LightGBM model object.
     """
-
-    default_params: Dict[str, Any] = {
-        "objective": "binary",
-        "metric": "binary_logloss",
-        "boosting_type": "gbdt",
-        "n_jobs": -1,
-        "is_unbalance": True,
-        "verbose": -1,
+    default_params = {
+        'objective': 'binary',
+        'metric': 'binary_logloss',
+        'boosting_type': 'gbdt',
+        'n_jobs': -1,
+        'is_unbalance': True,
+        'verbose': -1,
     }
 
     if params:
         default_params.update(params)
 
     model = lgb.LGBMClassifier(**default_params)
-
-    print(f"Training LightGBM model with parameters: {default_params}")
     model.fit(X_train, y_train)
-
     return model
 
+def optimize_hyperparameters(X: pd.DataFrame,
+                             y: pd.Series,
+                             cv_validator,
+                             max_evals: int = 50) -> Tuple[Dict[str, Any], Trials]:
+    """
+    Performs Bayesian hyperparameter optimization for the LightGBM model.
 
+    Args:
+        X (pd.DataFrame): The full feature dataset.
+        y (pd.Series): The full target label series.
+        cv_validator: An instantiated cross-validator (e.g., PurgedKFold).
+        max_evals (int): The maximum number of optimization trials to run.
 
-from typing import List, Tuple
+    Returns:
+        A tuple containing:
+        - dict: The best hyperparameters found.
+        - Trials: The hyperopt Trials object containing history of the search.
+    """
+    search_space = {
+        'n_estimators': hp.quniform('n_estimators', 100, 1000, 50),
+        'learning_rate': hp.loguniform('learning_rate', np.log(0.01), np.log(0.2)),
+        'num_leaves': hp.quniform('num_leaves', 20, 150, 5),
+        'max_depth': hp.quniform('max_depth', 3, 15, 1),
+        'min_child_samples': hp.quniform('min_child_samples', 20, 100, 5),
+        'reg_alpha': hp.uniform('reg_alpha', 0.0, 1.0),
+        'reg_lambda': hp.uniform('reg_lambda', 0.0, 1.0),
+    }
 
+    def objective(params: Dict[str, Any]) -> Dict[str, Any]:
+        """The objective function that hyperopt will minimize."""
+        params['n_estimators'] = int(params['n_estimators'])
+        params['num_leaves'] = int(params['num_leaves'])
+        params['max_depth'] = int(params['max_depth'])
+        params['min_child_samples'] = int(params['min_child_samples'])
 
-def optimize_hyperparameters(
-    X: np.ndarray, y: np.ndarray, cv: Any, max_evals: int = 10
-) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
-    """Return dummy best parameters and trials list."""
+        scores = []
+        for train_idx, test_idx in cv_validator.split(X):
+            X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+            y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
 
-    best_params: Dict[str, Any] = {"param": 1}
-    trials: List[Dict[str, Any]] = []
+            model = train_lightgbm_model(X_train.values, y_train.values, params)
+            y_pred = model.predict(X_test.values)
+            
+            score = precision_score(y_test, y_pred, zero_division=0)
+            scores.append(score)
+
+        avg_precision = np.mean(scores)
+        
+        return {'loss': -avg_precision, 'status': STATUS_OK, 'params': params}
+
+    trials = Trials()
+    best_params = fmin(
+        fn=objective,
+        space=search_space,
+        algo=tpe.suggest,
+        max_evals=max_evals,
+        trials=trials,
+        rstate=np.random.default_rng(42)
+    )
+
+    print(f"\nOptimization Complete. Best validation precision: {-trials.best_trial['result']['loss']:.4f}")
+    print(f"Best parameters: {best_params}")
+
     return best_params, trials
-

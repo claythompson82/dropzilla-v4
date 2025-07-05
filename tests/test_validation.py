@@ -7,7 +7,7 @@ import pytest
 
 # Attempt to import the class, skip if it fails
 try:
-    from dropzilla.validation import PurgedKFold
+    from dropzilla.validation import PurgedKFold  # type: ignore[attr-defined]
 except ImportError:
     PurgedKFold = None  # type: ignore
 
