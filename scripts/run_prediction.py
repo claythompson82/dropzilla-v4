@@ -50,9 +50,8 @@ def get_prediction(symbol: str, model_artifact_path: str) -> dict | None:
 
     # 2. Fetch Latest Data
     data_client = PolygonDataClient(api_key=POLYGON_API_KEY)
-    # Fetch enough data for feature calculation (e.g., 200 bars for longest ROC)
     to_date = datetime.now()
-    from_date = to_date - timedelta(days=5) # Fetch a few days to ensure enough data
+    from_date = to_date - timedelta(days=5)
     
     latest_data = data_client.get_aggs(
         symbol,
@@ -76,23 +75,29 @@ def get_prediction(symbol: str, model_artifact_path: str) -> dict | None:
     # 4. Calculate Features
     features_df = calculate_features(latest_data)
     
-    # Get the most recent feature vector
     latest_features = features_df.iloc[-1]
     X_live = latest_features[features_to_use].to_frame().T
+
+    # --- THE FIX ---
+    # Ensure all feature columns are the correct numeric type before prediction.
+    X_live = X_live.astype(float)
+    # --- END FIX ---
 
     # 5. Run Primary Model
     primary_prob = primary_model.predict_proba(X_live)[:, 1][0]
     print(f"Primary model probability: {primary_prob:.4f}")
 
     # 6. Run Meta-Model for Final Confidence
-    # Create the feature vector for the meta-model
-    meta_features = pd.DataFrame([{
+    meta_features_data = {
         'primary_model_probability': primary_prob,
         'relative_volume': latest_features.get('relative_volume', 1.0),
         'market_regime': latest_features.get('market_regime', 0)
-    }])
+    }
+    meta_features = pd.DataFrame([meta_features_data])
+    # Ensure dtypes match for meta-model as well
+    meta_features = meta_features[meta_features_to_use].astype(float)
     
-    final_confidence = meta_model.predict_proba(meta_features[meta_features_to_use])[:, 1][0]
+    final_confidence = meta_model.predict_proba(meta_features)[:, 1][0]
 
     result = {
         "symbol": symbol,
