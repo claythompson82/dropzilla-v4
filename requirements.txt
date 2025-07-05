@@ -1,0 +1,21 @@
+# Core Scientific Stack
+numpy
+pandas
+scikit-learn
+joblib
+
+# Modeling & Optimization
+lightgbm
+catboost
+hyperopt
+shap
+pykalman  # For signal smoothing
+
+# Data & API
+polygon-api-client
+pytz
+
+# Testing & Linting
+pytest
+mypy
+types-pytz
