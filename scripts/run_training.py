@@ -40,6 +40,16 @@ def main() -> None:
     to_date = datetime.now()
     from_date = to_date - timedelta(days=cast(int, DATA_CONFIG['data_period_days']))
 
+    # --- NEW: Fetch Market Context Data (SPY) ---
+    print("\nFetching market context data (SPY)...")
+    spy_df = data_client.get_aggs(
+        "SPY",
+        from_date=(from_date - timedelta(days=50)).strftime('%Y-%m-%d'),  # Fetch extra for rolling calcs
+        to_date=to_date.strftime('%Y-%m-%d'),
+        timespan='day'
+    )
+    # --- End NEW ---
+
     # 2. Data Collection
     all_data = []
     for symbol in symbols_to_train:
@@ -61,38 +71,61 @@ def main() -> None:
     print(f"\nTotal data collected: {len(combined_df)} rows.")
 
     # 3. Feature Engineering & Labeling (Simplified for now)
-    print("Calculating features...")
-    features_df = calculate_features(combined_df, FEATURE_CONFIG)
+    print("Calculating features and labels...")
+    processed = []
+    for symbol, group_df in combined_df.groupby('symbol'):
+        print(f"\nProcessing features and labels for {symbol}...")
 
-    # --- Dynamic Labeling ---
-    atr = ta.atr(
-        high=features_df['High'],
-        low=features_df['Low'],
-        close=features_df['Close'],
-        length=LABELING_CONFIG['atr_period']
-    )
-    target_volatility = atr.reindex(features_df.index).fillna(method='bfill')
+        # --- NEW: Merge Market Regime ---
+        if 'market_regime' not in spy_df.columns:
+            from dropzilla.context import get_market_regimes
+            spy_df['market_regime'] = get_market_regimes(spy_df)
 
-    vertical_barrier_times = (
-        features_df.index.to_series() +
-        pd.Timedelta(minutes=LABELING_CONFIG['vertical_barrier_minutes'])
-    )
+        group_df = pd.merge_asof(
+            group_df.sort_index(),
+            spy_df[['market_regime']].dropna(),
+            left_index=True,
+            right_index=True,
+            direction='backward'
+        )
+        # --- End NEW ---
 
-    labels = get_triple_barrier_labels(
-        prices=features_df['Close'],
-        t_events=features_df.index,
-        pt_sl=[
-            LABELING_CONFIG['profit_take_atr_multiplier'],
-            LABELING_CONFIG['stop_loss_atr_multiplier']
-        ],
-        target=target_volatility,
-        vertical_barrier_times=vertical_barrier_times,
-        side=pd.Series(-1, index=features_df.index)
-    )
+        # Calculate features for the single symbol
+        features_df = calculate_features(group_df, FEATURE_CONFIG)
 
-    features_df['drop_label'] = labels['bin'].replace(-1, 0)
-    features_df['label_time'] = labels['t1']
-    # --- End Dynamic Labeling ---
+        # --- Dynamic Labeling ---
+        atr = ta.atr(
+            high=features_df['High'],
+            low=features_df['Low'],
+            close=features_df['Close'],
+            length=LABELING_CONFIG['atr_period']
+        )
+        target_volatility = atr.reindex(features_df.index).fillna(method='bfill')
+
+        vertical_barrier_times = (
+            features_df.index.to_series() +
+            pd.Timedelta(minutes=LABELING_CONFIG['vertical_barrier_minutes'])
+        )
+
+        labels = get_triple_barrier_labels(
+            prices=features_df['Close'],
+            t_events=features_df.index,
+            pt_sl=[
+                LABELING_CONFIG['profit_take_atr_multiplier'],
+                LABELING_CONFIG['stop_loss_atr_multiplier']
+            ],
+            target=target_volatility,
+            vertical_barrier_times=vertical_barrier_times,
+            side=pd.Series(-1, index=features_df.index)
+        )
+
+        features_df['drop_label'] = labels['bin'].replace(-1, 0)
+        features_df['label_time'] = labels['t1']
+        # --- End Dynamic Labeling ---
+
+        processed.append(features_df)
+
+    features_df = pd.concat(processed)
 
     # Prepare final data for model
     features_to_use = [
@@ -100,7 +133,8 @@ def main() -> None:
         'roc_30', 'roc_60', 'roc_120',
         'rsi_14', 'rsi_14_sma_5',
         'macd_line', 'macd_signal', 'macd_hist', 'macd_hist_diff',
-        'mfi_14', 'obv_slope'
+        'mfi_14', 'obv_slope',
+        'market_regime'
     ]
     final_df = features_df.dropna(subset=features_to_use + ['drop_label', 'label_time'])
 
