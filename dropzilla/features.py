@@ -5,6 +5,7 @@ This module takes a raw OHLCV DataFrame and returns a DataFrame with all
 the calculated features needed for the model.
 """
 import numpy as np
+np.NaN = np.nan  # Compatibility alias for pandas_ta
 import pandas as pd
 import pandas_ta as ta
 
@@ -31,9 +32,8 @@ def calculate_features(df: pd.DataFrame, config: dict = None) -> pd.DataFrame:
     df['relative_volume'] = (df['Volume'] / df['avg_volume']).fillna(1.0)
 
     # --- Feature Group: VWAP-centric Features ---
-    # pandas-ta can calculate VWAP if the DatetimeIndex is reset
-    df_reset = df.reset_index()
-    vwap = ta.vwap(high=df_reset['High'], low=df_reset['Low'], close=df_reset['Close'], volume=df_reset['Volume'])
+    # VWAP calculation using pandas-ta requires a DatetimeIndex
+    vwap = ta.vwap(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
     if vwap is not None:
         df['vwap'] = vwap.values
         # Calculate distance from VWAP as a percentage
