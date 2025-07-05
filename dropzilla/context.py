@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 from hmmlearn import hmm
 
-
 def get_market_regimes(market_data: pd.DataFrame,
                        n_regimes: int = 2) -> pd.Series:
     """

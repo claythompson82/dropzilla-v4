@@ -84,7 +84,14 @@ def calculate_features(df: pd.DataFrame, config: dict | None = None) -> pd.DataF
         df['obv'] = obv
         # The trend of OBV is often more useful than its raw value
         df['obv_slope'] = ta.slope(df['obv'], length=10)
-    
+
+    # --- Feature Group: Contextual ---
+    # The regime is calculated separately and merged in.
+    # We assume 'market_regime' column is already present if this feature is used.
+    if 'market_regime' in df.columns:
+        # No calculation needed here, just ensure it's kept
+        pass
+
     # --- Clean up ---
     # Drop intermediate columns and handle NaNs
     if 'avg_volume' in df.columns:
