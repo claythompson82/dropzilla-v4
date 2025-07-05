@@ -22,6 +22,8 @@ from dropzilla.features import calculate_features
 from dropzilla.labeling import get_triple_barrier_labels
 from dropzilla.validation import PurgedKFold
 from dropzilla.models import optimize_hyperparameters, train_lightgbm_model
+from dropzilla.signal import train_meta_model  # meta-model training
+# We will define generate_meta_dataset inside this script for now.
 import joblib
 
 
@@ -179,52 +181,61 @@ def main() -> None:
     joblib.dump(model_artifact, model_filename)
     print(f"✅ Model artifact successfully saved to: {model_filename}")
 
-    print("\n--- Pipeline Complete ---")
+    # --- NEW SECTION: META-MODEL TRAINING ---
+    print("\n--- Starting Meta-Model Training Pipeline ---")
+
+    # We need the full featured dataframe from before the split
+    # Let's call our new function to generate the dataset for the meta-model
+    meta_dataset = generate_meta_dataset(MODEL_CONFIG['model_filename'], final_df)
+
+    if meta_dataset is not None and not meta_dataset.empty:
+        # Train the meta-model
+        meta_model = train_meta_model(meta_dataset)
+
+        # Add the meta-model to our artifact dictionary
+        model_artifact['meta_model'] = meta_model
+        model_artifact['meta_model_features'] = [
+            'primary_model_probability',
+            'relative_volume',
+            'market_regime',
+        ]
+
+        # Re-save the artifact, now with the meta-model included
+        joblib.dump(model_artifact, model_filename)
+        print(f"✅ Meta-model trained and added to artifact: {model_filename}")
+    else:
+        print("Could not generate meta-dataset. Skipping meta-model training.")
+
+    print("\n--- Full Pipeline Complete ---")
     print(f"Best parameters found: {best_params}")
 
 
-def generate_meta_dataset(model_artifact_path: str, data_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Generates a dataset for training the meta-model.
-
-    It loads the primary model, makes predictions, and creates a new target
-    variable where 1 means the primary model was correct, and 0 means it was not.
-
-    Args:
-        model_artifact_path (str): Path to the saved primary model artifact.
-        data_df (pd.DataFrame): The fully featured and labeled DataFrame.
-
-    Returns:
-        pd.DataFrame: A new DataFrame ready for training the meta-model.
-    """
+def generate_meta_dataset(model_artifact_path: str, data_df: pd.DataFrame) -> pd.DataFrame | None:
+    """Generates a dataset for training the meta-model."""
     print(f"\n--- Generating Meta-Model Dataset from {model_artifact_path} ---")
 
-    # 1. Load the trained primary model and its details
-    artifact = joblib.load(model_artifact_path)
+    try:
+        artifact = joblib.load(model_artifact_path)
+    except FileNotFoundError:
+        print(f"Error: Model artifact not found at {model_artifact_path}")
+        return None
+
     primary_model = artifact['model']
     features_to_use = artifact['features_to_use']
 
-    # 2. Get predictions and probabilities from the primary model
     X = data_df[features_to_use]
     primary_predictions = primary_model.predict(X)
-    primary_probabilities = primary_model.predict_proba(X)[:, 1]  # Probability of class 1
+    primary_probabilities = primary_model.predict_proba(X)[:, 1]
 
-    # 3. Create the meta-model features
     meta_df = data_df.copy()
     meta_df['primary_model_prediction'] = primary_predictions
     meta_df['primary_model_probability'] = primary_probabilities
+    meta_df['meta_target'] = (meta_df['primary_model_prediction'] == meta_df['drop_label']).astype(int)
 
-    # 4. Create the meta-model target label
-    # The target is 1 if the primary model's prediction matched the true label
-    meta_df['meta_target'] = (
-        meta_df['primary_model_prediction'] == meta_df['drop_label']
-    ).astype(int)
+    meta_df_filtered = meta_df[meta_df['primary_model_prediction'] == 1].copy()
 
-    # We only train the meta-model on instances where the primary model predicted a drop
-    meta_df = meta_df[meta_df['primary_model_prediction'] == 1]
-
-    print(f"Meta-dataset created with {len(meta_df)} samples.")
-    return meta_df
+    print(f"Meta-dataset created with {len(meta_df_filtered)} samples for training.")
+    return meta_df_filtered
 
 
 if __name__ == "__main__":
