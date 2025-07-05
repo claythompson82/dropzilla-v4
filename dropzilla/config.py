@@ -21,24 +21,22 @@ DATA_CONFIG = {
     "data_period_days": 365, # Lookback period for fetching training data
 }
 
-# --- Labeling Configuration (Phase 2) ---
-# --- THIS IS THE CHANGE ---
+# --- Labeling Configuration (Final Adjustment) ---
 LABELING_CONFIG = {
     "atr_period": 14,
-    "profit_take_atr_multiplier": 1.5,  # Reduced from 2.0
-    "stop_loss_atr_multiplier": 2.0,    # Increased from 1.5
-    "vertical_barrier_minutes": 240, # 4 hours
+    "profit_take_atr_multiplier": 1.5,
+    "stop_loss_atr_multiplier": 2.0,
+    "vertical_barrier_minutes": 390, # Changed from 240 to 390 (6.5 hours)
 }
-# --- END CHANGE ---
 
-# --- Feature Engineering Configuration (Phase 2) ---
+# --- Feature Engineering Configuration ---
 FEATURE_CONFIG = {
     "relative_volume_period": 50,
     "vwap_slope_period": 10,
     "roc_period": 60,
 }
 
-# --- Model & Optimization Configuration (Phase 1) ---
+# --- Model & Optimization Configuration ---
 MODEL_CONFIG = {
     "model_filename": "dropzilla_v4_lgbm.pkl",
     "optimization_max_evals": 50,
