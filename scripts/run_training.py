@@ -95,7 +95,13 @@ def main() -> None:
     # --- End Dynamic Labeling ---
 
     # Prepare final data for model
-    features_to_use = ['relative_volume', 'distance_from_vwap_pct', 'vwap_slope', 'roc_60']
+    features_to_use = [
+        'relative_volume', 'distance_from_vwap_pct', 'vwap_slope',
+        'roc_30', 'roc_60', 'roc_120',
+        'rsi_14', 'rsi_14_sma_5',
+        'macd_line', 'macd_signal', 'macd_hist', 'macd_hist_diff',
+        'mfi_14', 'obv_slope'
+    ]
     final_df = features_df.dropna(subset=features_to_use + ['drop_label', 'label_time'])
 
     X = final_df[features_to_use]
