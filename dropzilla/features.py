@@ -5,8 +5,13 @@ This module takes a raw OHLCV DataFrame and returns a DataFrame with all
 the calculated features needed for the model.
 """
 import numpy as np
-np.NaN = np.nan  # Compatibility alias for pandas_ta
 import pandas as pd
+
+# pandas-ta expects the deprecated `numpy.NaN` alias which was removed in
+# numpy 2.0. Recreate it if missing for backward compatibility.
+if not hasattr(np, "NaN"):
+    np.NaN = np.nan
+
 import pandas_ta as ta
 
 def calculate_features(df: pd.DataFrame, config: dict = None) -> pd.DataFrame:
@@ -32,10 +37,11 @@ def calculate_features(df: pd.DataFrame, config: dict = None) -> pd.DataFrame:
     df['relative_volume'] = (df['Volume'] / df['avg_volume']).fillna(1.0)
 
     # --- Feature Group: VWAP-centric Features ---
-    # VWAP calculation using pandas-ta requires a DatetimeIndex
+    # pandas-ta's vwap function correctly handles daily resets when passed
+    # Series with a DatetimeIndex.
     vwap = ta.vwap(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
     if vwap is not None:
-        df['vwap'] = vwap.values
+        df['vwap'] = vwap # Assign the resulting Series directly
         # Calculate distance from VWAP as a percentage
         df['distance_from_vwap_pct'] = (df['Close'] - df['vwap']) / df['vwap']
         # Calculate slope of VWAP
@@ -51,7 +57,8 @@ def calculate_features(df: pd.DataFrame, config: dict = None) -> pd.DataFrame:
     
     # --- Clean up ---
     # Drop intermediate columns and handle NaNs
-    df = df.drop(columns=['avg_volume'])
+    if 'avg_volume' in df.columns:
+        df = df.drop(columns=['avg_volume'])
     df = df.fillna(method='bfill').fillna(method='ffill')
 
     return df

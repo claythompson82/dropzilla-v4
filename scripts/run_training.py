@@ -20,7 +20,8 @@ from dropzilla.data import PolygonDataClient
 from dropzilla.features import calculate_features
 from dropzilla.labeling import get_triple_barrier_labels
 from dropzilla.validation import PurgedKFold
-from dropzilla.models import optimize_hyperparameters
+from dropzilla.models import optimize_hyperparameters, train_lightgbm_model
+import joblib
 
 
 def main() -> None:
@@ -115,8 +116,29 @@ def main() -> None:
         X, y, cv_validator, max_evals=MODEL_CONFIG['optimization_max_evals']
     )
 
-    # 5. TODO: Final Model Training and Serialization
-    print("\n--- Pipeline Complete (Model saving not yet implemented) ---")
+    # 5. Final Model Training and Serialization
+    print("\n--- Training Final Model on All Data ---")
+    final_params = best_params.copy()
+    for param in ['n_estimators', 'num_leaves', 'max_depth', 'min_child_samples']:
+        if param in final_params:
+            final_params[param] = int(final_params[param])
+
+    final_model = train_lightgbm_model(X.values, y.values, params=final_params)
+    print("Final model training complete.")
+
+    model_artifact = {
+        "model": final_model,
+        "best_params": best_params,
+        "features_to_use": features_to_use,
+        "training_timestamp_utc": datetime.utcnow().isoformat(),
+        "dropzilla_version": "4.0"
+    }
+
+    model_filename = MODEL_CONFIG['model_filename']
+    joblib.dump(model_artifact, model_filename)
+    print(f"✅ Model artifact successfully saved to: {model_filename}")
+
+    print("\n--- Pipeline Complete ---")
     print(f"Best parameters found: {best_params}")
 
 
