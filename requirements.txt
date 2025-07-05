@@ -1,6 +1,7 @@
 # Core Scientific Stack
 numpy
 pandas
+pandas-ta
 scikit-learn
 joblib
 
@@ -14,6 +15,7 @@ pykalman  # For signal smoothing
 # Data & API
 polygon-api-client
 pytz
+python-dotenv
 
 # Testing & Linting
 pytest
