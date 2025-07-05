@@ -22,12 +22,14 @@ DATA_CONFIG = {
 }
 
 # --- Labeling Configuration (Phase 2) ---
+# --- THIS IS THE CHANGE ---
 LABELING_CONFIG = {
     "atr_period": 14,
-    "profit_take_atr_multiplier": 2.0,
-    "stop_loss_atr_multiplier": 1.5,
+    "profit_take_atr_multiplier": 1.5,  # Reduced from 2.0
+    "stop_loss_atr_multiplier": 2.0,    # Increased from 1.5
     "vertical_barrier_minutes": 240, # 4 hours
 }
+# --- END CHANGE ---
 
 # --- Feature Engineering Configuration (Phase 2) ---
 FEATURE_CONFIG = {
