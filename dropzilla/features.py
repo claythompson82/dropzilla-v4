@@ -70,6 +70,20 @@ def calculate_features(df: pd.DataFrame, config: dict | None = None) -> pd.DataF
         df['macd_hist'] = macd['MACDh_12_26_9']
         # Acceleration of momentum (change in the histogram)
         df['macd_hist_diff'] = df['macd_hist'].diff()
+
+    # --- Feature Group: Volume and Money Flow ---
+    # Money Flow Index (MFI) - the volume-weighted RSI
+    df['mfi_14'] = ta.mfi(
+        high=df['High'], low=df['Low'], close=df['Close'],
+        volume=df['Volume'], length=14
+    )
+
+    # On-Balance Volume (OBV) to measure cumulative pressure
+    obv = ta.obv(df['Close'], df['Volume'])
+    if obv is not None:
+        df['obv'] = obv
+        # The trend of OBV is often more useful than its raw value
+        df['obv_slope'] = ta.slope(df['obv'], length=10)
     
     # --- Clean up ---
     # Drop intermediate columns and handle NaNs
