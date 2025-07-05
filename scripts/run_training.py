@@ -10,13 +10,15 @@ This script orchestrates the entire process:
 6. Saves the best model and supplementary artifacts.
 """
 import pandas as pd
+import pandas_ta as ta
+import joblib
 from datetime import datetime, timedelta
 
 # Import project modules
 from dropzilla.config import POLYGON_API_KEY, DATA_CONFIG, MODEL_CONFIG, LABELING_CONFIG, FEATURE_CONFIG
 from dropzilla.data import PolygonDataClient
 from dropzilla.features import calculate_features
-# from dropzilla.labeling import get_triple_barrier_labels # To be used once fully implemented
+from dropzilla.labeling import get_triple_barrier_labels
 from dropzilla.validation import PurgedKFold
 from dropzilla.models import optimize_hyperparameters, train_lightgbm_model
 import joblib
@@ -61,12 +63,35 @@ def main() -> None:
     print("Calculating features...")
     features_df = calculate_features(combined_df, FEATURE_CONFIG)
 
-    # --- Placeholder Labeling ---
-    # This section will be replaced by the output of the real labeling module
-    # For now, create a dummy label for testing the pipeline
-    features_df['drop_label'] = (features_df['Close'].pct_change(periods=60) < -0.01).astype(int)
-    features_df['label_time'] = features_df.index + pd.Timedelta(minutes=LABELING_CONFIG['vertical_barrier_minutes'])
-    # --- End Placeholder ---
+    # --- Dynamic Labeling ---
+    atr = ta.atr(
+        high=features_df['High'],
+        low=features_df['Low'],
+        close=features_df['Close'],
+        length=LABELING_CONFIG['atr_period']
+    )
+    target_volatility = atr.reindex(features_df.index).fillna(method='bfill')
+
+    vertical_barrier_times = (
+        features_df.index.to_series() +
+        pd.Timedelta(minutes=LABELING_CONFIG['vertical_barrier_minutes'])
+    )
+
+    labels = get_triple_barrier_labels(
+        prices=features_df['Close'],
+        t_events=features_df.index,
+        pt_sl=[
+            LABELING_CONFIG['profit_take_atr_multiplier'],
+            LABELING_CONFIG['stop_loss_atr_multiplier']
+        ],
+        target=target_volatility,
+        vertical_barrier_times=vertical_barrier_times,
+        side=pd.Series(-1, index=features_df.index)
+    )
+
+    features_df['drop_label'] = labels['bin'].replace(-1, 0)
+    features_df['label_time'] = labels['t1']
+    # --- End Dynamic Labeling ---
 
     # Prepare final data for model
     features_to_use = ['relative_volume', 'distance_from_vwap_pct', 'vwap_slope', 'roc_60']
