@@ -6,6 +6,12 @@ the calculated features needed for the model.
 """
 import numpy as np
 import pandas as pd
+
+# pandas_ta expects the deprecated `numpy.NaN` alias which was removed in
+# numpy 2.0. Recreate it if missing for backward compatibility.
+if not hasattr(np, "NaN"):
+    np.NaN = np.nan
+
 import pandas_ta as ta
 
 def calculate_features(df: pd.DataFrame, config: dict = None) -> pd.DataFrame:
@@ -31,9 +37,9 @@ def calculate_features(df: pd.DataFrame, config: dict = None) -> pd.DataFrame:
     df['relative_volume'] = (df['Volume'] / df['avg_volume']).fillna(1.0)
 
     # --- Feature Group: VWAP-centric Features ---
-    # pandas-ta can calculate VWAP if the DatetimeIndex is reset
-    df_reset = df.reset_index()
-    vwap = ta.vwap(high=df_reset['High'], low=df_reset['Low'], close=df_reset['Close'], volume=df_reset['Volume'])
+    # pandas-ta expects the data to be indexed by time so we pass the series directly
+    # without resetting the index. This avoids RangeIndex issues during groupby.
+    vwap = ta.vwap(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
     if vwap is not None:
         df['vwap'] = vwap.values
         # Calculate distance from VWAP as a percentage
