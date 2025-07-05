@@ -183,5 +183,52 @@ def main() -> None:
     print(f"Best parameters found: {best_params}")
 
 
+def generate_meta_dataset(model_artifact_path: str, data_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Generates a dataset for training the meta-model.
+
+    It loads the primary model, makes predictions, and creates a new target
+    variable where 1 means the primary model was correct, and 0 means it was not.
+
+    Args:
+        model_artifact_path (str): Path to the saved primary model artifact.
+        data_df (pd.DataFrame): The fully featured and labeled DataFrame.
+
+    Returns:
+        pd.DataFrame: A new DataFrame ready for training the meta-model.
+    """
+    print(f"\n--- Generating Meta-Model Dataset from {model_artifact_path} ---")
+
+    # 1. Load the trained primary model and its details
+    artifact = joblib.load(model_artifact_path)
+    primary_model = artifact['model']
+    features_to_use = artifact['features_to_use']
+
+    # 2. Get predictions and probabilities from the primary model
+    X = data_df[features_to_use]
+    primary_predictions = primary_model.predict(X)
+    primary_probabilities = primary_model.predict_proba(X)[:, 1]  # Probability of class 1
+
+    # 3. Create the meta-model features
+    meta_df = data_df.copy()
+    meta_df['primary_model_prediction'] = primary_predictions
+    meta_df['primary_model_probability'] = primary_probabilities
+
+    # 4. Create the meta-model target label
+    # The target is 1 if the primary model's prediction matched the true label
+    meta_df['meta_target'] = (
+        meta_df['primary_model_prediction'] == meta_df['drop_label']
+    ).astype(int)
+
+    # We only train the meta-model on instances where the primary model predicted a drop
+    meta_df = meta_df[meta_df['primary_model_prediction'] == 1]
+
+    print(f"Meta-dataset created with {len(meta_df)} samples.")
+    return meta_df
+
+
 if __name__ == "__main__":
     main()
+    # Example of how to run the new function after main() completes:
+    # final_df = ... (this would need to be passed from main)
+    # generate_meta_dataset("dropzilla_v4_lgbm.pkl", final_df)
