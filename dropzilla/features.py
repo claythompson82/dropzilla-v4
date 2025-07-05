@@ -52,8 +52,24 @@ def calculate_features(df: pd.DataFrame, config: dict = None) -> pd.DataFrame:
         df['vwap_slope'] = np.nan
 
 
-    # --- Feature Group: Momentum and Acceleration (Example) ---
-    df['roc_60'] = ta.roc(df['Close'], length=60) # 1-hour rate of change
+    # --- Feature Group: Momentum and Acceleration ---
+    # Multi-timescale Rate of Change (ROC) for velocity
+    df['roc_30'] = ta.roc(df['Close'], length=30)
+    df['roc_60'] = ta.roc(df['Close'], length=60)
+    df['roc_120'] = ta.roc(df['Close'], length=120)
+
+    # RSI and its smoothed version
+    df['rsi_14'] = ta.rsi(df['Close'], length=14)
+    df['rsi_14_sma_5'] = ta.sma(df['rsi_14'], length=5)  # Smoothed RSI trend
+
+    # MACD for trend and momentum
+    macd = ta.macd(df['Close'], fast=12, slow=26, signal=9)
+    if macd is not None:
+        df['macd_line'] = macd['MACD_12_26_9']
+        df['macd_signal'] = macd['MACDs_12_26_9']
+        df['macd_hist'] = macd['MACDh_12_26_9']
+        # Acceleration of momentum (change in the histogram)
+        df['macd_hist_diff'] = df['macd_hist'].diff()
     
     # --- Clean up ---
     # Drop intermediate columns and handle NaNs
