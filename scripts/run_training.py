@@ -37,19 +37,11 @@ from dropzilla.context import get_market_regimes
 from dropzilla.signal import train_meta_model
 
 
-def generate_meta_dataset(model_artifact_path: str, data_df: pd.DataFrame) -> pd.DataFrame | None:
+def generate_meta_dataset(model_artifact_path: str,
+                            data_df: pd.DataFrame,
+                            probability_threshold: float = 0.20) -> pd.DataFrame | None:
     """
     Generates a dataset for training the meta-model.
-
-    It loads the primary model, makes predictions, and creates a new target
-    variable where 1 means the primary model was correct, and 0 means it was not.
-
-    Args:
-        model_artifact_path (str): Path to the saved primary model artifact.
-        data_df (pd.DataFrame): The fully featured and labeled DataFrame.
-
-    Returns:
-        pd.DataFrame | None: A new DataFrame ready for training the meta-model, or None if fails.
     """
     print(f"\n--- Generating Meta-Model Dataset from {model_artifact_path} ---")
     
@@ -63,18 +55,17 @@ def generate_meta_dataset(model_artifact_path: str, data_df: pd.DataFrame) -> pd
     features_to_use = artifact['features_to_use']
 
     X = data_df[features_to_use]
-    primary_predictions = primary_model.predict(X)
     primary_probabilities = primary_model.predict_proba(X)[:, 1]
+    primary_candidate_signals = (primary_probabilities >= probability_threshold).astype(int)
 
     meta_df = data_df.copy()
-    meta_df['primary_model_prediction'] = primary_predictions
+    meta_df['primary_model_candidate'] = primary_candidate_signals
     meta_df['primary_model_probability'] = primary_probabilities
-    meta_df['meta_target'] = (meta_df['primary_model_prediction'] == meta_df['drop_label']).astype(int)
+    meta_df['meta_target'] = (meta_df['primary_model_candidate'] == meta_df['drop_label']).astype(int)
 
-    # We only train the meta-model on instances where the primary model predicted a drop
-    meta_df_filtered = meta_df[meta_df['primary_model_prediction'] == 1].copy()
+    meta_df_filtered = meta_df[meta_df['primary_model_candidate'] == 1].copy()
 
-    print(f"Meta-dataset created with {len(meta_df_filtered)} samples for training.")
+    print(f"Found {len(meta_df_filtered)} candidate signals with p > {probability_threshold} for meta-model training.")
     return meta_df_filtered
 
 
@@ -169,7 +160,11 @@ def main() -> None:
     for param in ['n_estimators', 'num_leaves', 'max_depth', 'min_child_samples']:
         if param in final_params:
             final_params[param] = int(final_params[param])
-    final_model = train_lightgbm_model(X.values, y.values, params=final_params)
+    
+    # --- THE FIX ---
+    # Pass the DataFrame `X` directly, not `X.values`, to preserve feature names
+    final_model = train_lightgbm_model(X, y, params=final_params)
+    # --- END FIX ---
     print("Final primary model training complete.")
 
     model_artifact = {"model": final_model, "best_params": best_params, "features_to_use": features_to_use, "training_timestamp_utc": datetime.utcnow().isoformat(), "dropzilla_version": "4.0"}
