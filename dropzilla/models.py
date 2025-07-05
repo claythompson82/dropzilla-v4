@@ -9,30 +9,36 @@ This module will contain:
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, List
 from sklearn.metrics import roc_auc_score
 from hyperopt import fmin, tpe, hp, Trials, STATUS_OK
 
-def train_lightgbm_model(X_train: np.ndarray,
-                         y_train: np.ndarray,
+def train_lightgbm_model(X_train: pd.DataFrame,
+                         y_train: pd.Series,
                          params: Dict[str, Any] | None = None) -> lgb.LGBMClassifier:
     """
     Trains a LightGBM classifier with a given set of parameters.
     """
+    # --- STABILITY FIX ---
+    # Explicitly limit n_jobs to avoid resource contention that can cause segfaults.
+    # We also set a specific random_state for full reproducibility.
     default_params: Dict[str, Any] = {
         'objective': 'binary',
         'metric': 'binary_logloss',
         'boosting_type': 'gbdt',
-        'n_jobs': -1,
+        'n_jobs': 4,  # Use a fixed number of cores instead of all of them
         'is_unbalance': True,
+        'random_state': 42,
         'verbose': -1,
     }
+    # --- END FIX ---
 
     if params:
         default_params.update(params)
 
     model = lgb.LGBMClassifier(**default_params)
-    model.fit(X_train, y_train)
+    # Pass feature names to the model to avoid warnings and ensure consistency
+    model.fit(X_train, y_train, feature_name=X_train.columns.to_list())
     return model
 
 def optimize_hyperparameters(X: pd.DataFrame,
@@ -64,22 +70,19 @@ def optimize_hyperparameters(X: pd.DataFrame,
             X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
             y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
 
-            # --- THE FIX ---
-            # Check if the test set has both classes before trying to score.
             if len(np.unique(y_test)) < 2:
-                # Can't calculate AUC without both classes.
-                # Assign a neutral score (0.5 is random guessing for AUC).
                 score = 0.5
             else:
                 try:
-                    model = train_lightgbm_model(X_train.values, y_train.values, params)
-                    y_proba = model.predict_proba(X_test.values)[:, 1]
+                    # --- STABILITY FIX ---
+                    # Pass DataFrames directly to preserve feature names
+                    model = train_lightgbm_model(X_train, y_train, params)
+                    y_proba = model.predict_proba(X_test)[:, 1]
+                    # --- END FIX ---
                     score = roc_auc_score(y_test, y_proba)
                 except Exception as e:
-                    # If any other error occurs during training/prediction, assign a bad score.
                     print(f"An error occurred during trial: {e}")
                     score = 0.0
-            # --- END FIX ---
             scores.append(score)
 
         avg_score = np.mean(scores)
