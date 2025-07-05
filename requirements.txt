@@ -1,6 +1,7 @@
 # Core Scientific Stack
 numpy
 pandas
+pandas-ta
 scikit-learn
 joblib
 
