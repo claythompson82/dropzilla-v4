@@ -9,7 +9,7 @@ import pytest
 try:
     from dropzilla.validation import PurgedKFold  # type: ignore[attr-defined]
 except ImportError:
-    PurgedKFold = None
+    PurgedKFold = None  # type: ignore
 
 @pytest.mark.skipif(PurgedKFold is None, reason="PurgedKFold class not found in dropzilla.validation")
 def test_purged_kfold_instantiation_and_split():
