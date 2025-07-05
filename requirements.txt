@@ -14,6 +14,7 @@ pykalman  # For signal smoothing
 # Data & API
 polygon-api-client
 pytz
+python-dotenv
 
 # Testing & Linting
 pytest
