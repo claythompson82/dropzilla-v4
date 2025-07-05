@@ -8,7 +8,7 @@ This module will contain:
 """
 import lightgbm as lgb
 import numpy as np
-import pandas as pd  # <-- THIS IS THE FIX
+import pandas as pd
 from typing import Dict, Any, Tuple
 from sklearn.metrics import roc_auc_score
 from hyperopt import fmin, tpe, hp, Trials, STATUS_OK
@@ -18,15 +18,6 @@ def train_lightgbm_model(X_train: np.ndarray,
                          params: Dict[str, Any] | None = None) -> lgb.LGBMClassifier:
     """
     Trains a LightGBM classifier with a given set of parameters.
-
-    Args:
-        X_train (np.ndarray): The training feature data.
-        y_train (np.ndarray): The training target labels.
-        params (Dict[str, Any] | None, optional): A dictionary of parameters to override
-                                                  the defaults. Defaults to None.
-
-    Returns:
-        lgb.LGBMClassifier: The trained LightGBM model object.
     """
     default_params: Dict[str, Any] = {
         'objective': 'binary',
@@ -73,10 +64,22 @@ def optimize_hyperparameters(X: pd.DataFrame,
             X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
             y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
 
-            model = train_lightgbm_model(X_train.values, y_train.values, params)
-            
-            y_proba = model.predict_proba(X_test.values)[:, 1]
-            score = roc_auc_score(y_test, y_proba)
+            # --- THE FIX ---
+            # Check if the test set has both classes before trying to score.
+            if len(np.unique(y_test)) < 2:
+                # Can't calculate AUC without both classes.
+                # Assign a neutral score (0.5 is random guessing for AUC).
+                score = 0.5
+            else:
+                try:
+                    model = train_lightgbm_model(X_train.values, y_train.values, params)
+                    y_proba = model.predict_proba(X_test.values)[:, 1]
+                    score = roc_auc_score(y_test, y_proba)
+                except Exception as e:
+                    # If any other error occurs during training/prediction, assign a bad score.
+                    print(f"An error occurred during trial: {e}")
+                    score = 0.0
+            # --- END FIX ---
             scores.append(score)
 
         avg_score = np.mean(scores)
