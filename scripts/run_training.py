@@ -13,6 +13,7 @@ import pandas as pd
 import pandas_ta as ta
 import joblib
 from datetime import datetime, timedelta
+from typing import cast
 
 # Import project modules
 from dropzilla.config import POLYGON_API_KEY, DATA_CONFIG, MODEL_CONFIG, LABELING_CONFIG, FEATURE_CONFIG
@@ -37,7 +38,7 @@ def main() -> None:
     # Define symbols and date range for training data
     symbols_to_train = ["AAPL", "MSFT", "NVDA", "TSLA", "GOOG"]
     to_date = datetime.now()
-    from_date = to_date - timedelta(days=DATA_CONFIG['data_period_days'])
+    from_date = to_date - timedelta(days=cast(int, DATA_CONFIG['data_period_days']))
 
     # 2. Data Collection
     all_data = []
@@ -107,13 +108,13 @@ def main() -> None:
     # 4. Model Optimization
     print("\n--- Starting Hyperparameter Optimization ---")
     cv_validator = PurgedKFold(
-        n_splits=MODEL_CONFIG['cv_n_splits'],
+        n_splits=cast(int, MODEL_CONFIG['cv_n_splits']),
         label_times=label_times,
-        embargo_pct=MODEL_CONFIG['cv_embargo_pct']
+        embargo_pct=cast(float, MODEL_CONFIG['cv_embargo_pct'])
     )
 
     best_params, trials = optimize_hyperparameters(
-        X, y, cv_validator, max_evals=MODEL_CONFIG['optimization_max_evals']
+        X, y, cv_validator, max_evals=cast(int, MODEL_CONFIG['optimization_max_evals'])
     )
 
     # 5. Final Model Training and Serialization
