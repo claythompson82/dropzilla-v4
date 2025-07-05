@@ -75,6 +75,7 @@ def calculate_features(df: pd.DataFrame, config: dict = None) -> pd.DataFrame:
     # Drop intermediate columns and handle NaNs
     if 'avg_volume' in df.columns:
         df = df.drop(columns=['avg_volume'])
-    df = df.fillna(method='bfill').fillna(method='ffill')
+    # Use modern chaining to avoid pandas deprecation warnings
+    df = df.bfill().ffill()
 
     return df
