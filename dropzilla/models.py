@@ -13,22 +13,12 @@ from typing import Dict, Any, Tuple
 from sklearn.metrics import precision_score
 from hyperopt import fmin, tpe, hp, Trials, STATUS_OK
 
+
 def train_lightgbm_model(X_train: np.ndarray,
                          y_train: np.ndarray,
-                         params: Dict[str, Any] = None) -> lgb.LGBMClassifier:
-    """
-    Trains a LightGBM classifier with a given set of parameters.
-
-    Args:
-        X_train (np.ndarray): The training feature data.
-        y_train (np.ndarray): The training target labels.
-        params (Dict[str, Any], optional): A dictionary of parameters to override
-                                           the defaults. Defaults to None.
-
-    Returns:
-        lgb.LGBMClassifier: The trained LightGBM model object.
-    """
-    default_params = {
+                         params: Dict[str, Any] | None = None) -> lgb.LGBMClassifier:
+    """Trains a LightGBM classifier with a given set of parameters."""
+    default_params: Dict[str, Any] = {
         'objective': 'binary',
         'metric': 'binary_logloss',
         'boosting_type': 'gbdt',
@@ -44,24 +34,12 @@ def train_lightgbm_model(X_train: np.ndarray,
     model.fit(X_train, y_train)
     return model
 
+
 def optimize_hyperparameters(X: pd.DataFrame,
                              y: pd.Series,
                              cv_validator,
                              max_evals: int = 50) -> Tuple[Dict[str, Any], Trials]:
-    """
-    Performs Bayesian hyperparameter optimization for the LightGBM model.
-
-    Args:
-        X (pd.DataFrame): The full feature dataset.
-        y (pd.Series): The full target label series.
-        cv_validator: An instantiated cross-validator (e.g., PurgedKFold).
-        max_evals (int): The maximum number of optimization trials to run.
-
-    Returns:
-        A tuple containing:
-        - dict: The best hyperparameters found.
-        - Trials: The hyperopt Trials object containing history of the search.
-    """
+    """Performs Bayesian hyperparameter optimization for the LightGBM model."""
     search_space = {
         'n_estimators': hp.quniform('n_estimators', 100, 1000, 50),
         'learning_rate': hp.loguniform('learning_rate', np.log(0.01), np.log(0.2)),

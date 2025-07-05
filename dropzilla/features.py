@@ -10,11 +10,11 @@ import pandas as pd
 # pandas-ta expects the deprecated `numpy.NaN` alias which was removed in
 # numpy 2.0. Recreate it if missing for backward compatibility.
 if not hasattr(np, "NaN"):
-    np.NaN = np.nan
+    setattr(np, "NaN", np.nan)
 
 import pandas_ta as ta
 
-def calculate_features(df: pd.DataFrame, config: dict = None) -> pd.DataFrame:
+def calculate_features(df: pd.DataFrame, config: dict | None = None) -> pd.DataFrame:
     """
     Calculates all v4 features for the given OHLCV data.
 
