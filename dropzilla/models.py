@@ -1,12 +1,48 @@
-# In dropzilla/models.py
+"""
+Handles the training, optimization, and prediction logic for Dropzilla v4 models.
 
-# ... (existing imports)
-# --- CHANGE THIS IMPORT ---
+This module will contain:
+- The primary model (LightGBM) training function.
+- The Bayesian Optimization pipeline using Hyperopt.
+- The final prediction function.
+"""
+import lightgbm as lgb
+import numpy as np
+import pandas as pd  # <-- THIS IS THE FIX
+from typing import Dict, Any, Tuple
 from sklearn.metrics import roc_auc_score
-# --- END CHANGE ---
 from hyperopt import fmin, tpe, hp, Trials, STATUS_OK
 
-# ... (train_lightgbm_model function remains the same) ...
+def train_lightgbm_model(X_train: np.ndarray,
+                         y_train: np.ndarray,
+                         params: Dict[str, Any] | None = None) -> lgb.LGBMClassifier:
+    """
+    Trains a LightGBM classifier with a given set of parameters.
+
+    Args:
+        X_train (np.ndarray): The training feature data.
+        y_train (np.ndarray): The training target labels.
+        params (Dict[str, Any] | None, optional): A dictionary of parameters to override
+                                                  the defaults. Defaults to None.
+
+    Returns:
+        lgb.LGBMClassifier: The trained LightGBM model object.
+    """
+    default_params: Dict[str, Any] = {
+        'objective': 'binary',
+        'metric': 'binary_logloss',
+        'boosting_type': 'gbdt',
+        'n_jobs': -1,
+        'is_unbalance': True,
+        'verbose': -1,
+    }
+
+    if params:
+        default_params.update(params)
+
+    model = lgb.LGBMClassifier(**default_params)
+    model.fit(X_train, y_train)
+    return model
 
 def optimize_hyperparameters(X: pd.DataFrame,
                              y: pd.Series,
@@ -15,7 +51,6 @@ def optimize_hyperparameters(X: pd.DataFrame,
     """
     Performs Bayesian hyperparameter optimization for the LightGBM model.
     """
-    # ... (search_space remains the same) ...
     search_space = {
         'n_estimators': hp.quniform('n_estimators', 100, 1000, 50),
         'learning_rate': hp.loguniform('learning_rate', np.log(0.01), np.log(0.2)),
@@ -40,17 +75,12 @@ def optimize_hyperparameters(X: pd.DataFrame,
 
             model = train_lightgbm_model(X_train.values, y_train.values, params)
             
-            # --- CHANGE THIS LOGIC ---
-            # Instead of predicting the class, get the probability of class 1
             y_proba = model.predict_proba(X_test.values)[:, 1]
-            # Calculate the Area Under the ROC Curve
             score = roc_auc_score(y_test, y_proba)
-            # --- END CHANGE ---
             scores.append(score)
 
         avg_score = np.mean(scores)
         
-        # We want to MAXIMIZE AUC, so we MINIMIZE its negative
         return {'loss': -avg_score, 'status': STATUS_OK, 'params': params}
 
     trials = Trials()
