@@ -49,3 +49,17 @@ def train_lightgbm_model(
 
     return model
 
+
+
+from typing import List, Tuple
+
+
+def optimize_hyperparameters(
+    X: np.ndarray, y: np.ndarray, cv: Any, max_evals: int = 10
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    """Return dummy best parameters and trials list."""
+
+    best_params: Dict[str, Any] = {"param": 1}
+    trials: List[Dict[str, Any]] = []
+    return best_params, trials
+
