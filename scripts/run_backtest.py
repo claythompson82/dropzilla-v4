@@ -6,9 +6,9 @@ import argparse
 import pandas as pd
 import numpy as np
 import joblib
-from datetime import datetime, timedelta  # <-- THIS IS THE FIX
+from datetime import datetime, timedelta
 
-from dropzilla.config import POLYGON_API_KEY, DATA_CONFIG, MODEL_CONFIG, LABELING_CONFIG, FEATURE_CONFIG
+from dropzilla.config import POLYGON_API_KEY, DATA_CONFIG
 from dropzilla.data import PolygonDataClient
 from dropzilla.features import calculate_features
 from dropzilla.context import get_market_regimes
@@ -35,17 +35,19 @@ def run_backtest(model_artifact_path: str, confidence_threshold: float):
         print(f"Error loading model artifact: {e}")
         return
 
-    # This part is similar to the training script, to build the full dataset
     data_client = PolygonDataClient(api_key=POLYGON_API_KEY)
     symbols = ["AAPL", "MSFT", "NVDA", "TSLA", "GOOG"]
     to_date = datetime.now()
     from_date = to_date - timedelta(days=DATA_CONFIG['data_period_days'])
+    
+    print("Fetching context data...")
     spy_df = data_client.get_aggs("SPY", from_date=(from_date - timedelta(days=50)).strftime('%Y-%m-%d'), to_date=to_date.strftime('%Y-%m-%d'), timespan='day')
     if spy_df is not None and not spy_df.empty:
         spy_df['market_regime'] = get_market_regimes(spy_df)
 
     all_data = []
     for symbol in symbols:
+        print(f"Fetching full dataset for {symbol}...")
         df = data_client.get_aggs(symbol, from_date=from_date.strftime('%Y-%m-%d'), to_date=to_date.strftime('%Y-%m-%d'))
         if df is None or df.empty: continue
         
@@ -54,7 +56,7 @@ def run_backtest(model_artifact_path: str, confidence_threshold: float):
         
         group_with_context = pd.merge_asof(df.sort_index(), spy_df[['market_regime']].dropna(), left_index=True, right_index=True, direction='backward')
         
-        features_df = calculate_features(group_with_context, daily_log_returns, FEATURE_CONFIG)
+        features_df = calculate_features(group_with_context, daily_log_returns)
         features_df['symbol'] = symbol
         all_data.append(features_df)
     
@@ -66,10 +68,13 @@ def run_backtest(model_artifact_path: str, confidence_threshold: float):
     X = backtest_df[features_to_use]
     primary_probs = primary_model.predict_proba(X)[:, 1]
     
+    model_uncertainty = 1 - 2 * np.abs(primary_probs - 0.5)
+
     meta_features_df = pd.DataFrame({
         'primary_model_probability': primary_probs,
         'relative_volume': backtest_df['relative_volume'],
-        'market_regime': backtest_df['market_regime']
+        'market_regime': backtest_df['market_regime'],
+        'model_uncertainty': model_uncertainty
     })
     final_confidences = meta_model.predict_proba(meta_features_df[meta_features_to_use])[:, 1]
     
@@ -79,19 +84,16 @@ def run_backtest(model_artifact_path: str, confidence_threshold: float):
     # 3. Simulate Trades and Calculate Returns
     print("Simulating trades...")
     # Calculate the forward return for each minute to evaluate trade profitability
-    # This is a simplified proxy for our triple-barrier returns.
     backtest_df['forward_return'] = backtest_df.groupby('symbol')['Close'].pct_change(periods=-60).shift(60)
     
-    # We only care about returns where a signal was generated
     trade_returns = backtest_df[backtest_df['signal'] == 1]['forward_return']
-    # Since we are shorting, our profit is the negative of the forward return
-    trade_returns = -trade_returns
+    trade_returns = -trade_returns # Invert for short positions
 
     # 4. Calculate and Print Performance Metrics
     print("\n--- Backtest Performance Metrics ---")
     num_trades = len(trade_returns)
     if num_trades == 0:
-        print("No trades were generated at this confidence threshold.")
+        print(f"No trades were generated at this confidence threshold ({confidence_threshold:.2%}).")
         return
 
     gross_profit = trade_returns[trade_returns > 0].sum()
@@ -99,7 +101,7 @@ def run_backtest(model_artifact_path: str, confidence_threshold: float):
     profit_factor = gross_profit / gross_loss if gross_loss > 0 else np.inf
     win_rate = (trade_returns > 0).mean()
     avg_trade_return = trade_returns.mean()
-    sharpe_ratio = (trade_returns.mean() / trade_returns.std()) * np.sqrt(252 * 390) # Annualized
+    sharpe_ratio = (trade_returns.mean() / trade_returns.std()) * np.sqrt(252 * 390) if trade_returns.std() > 0 else 0
 
     print(f"Confidence Threshold: {confidence_threshold:.2%}")
     print(f"Total Trades Generated: {num_trades}")
@@ -121,8 +123,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--threshold",
         type=float,
-        default=0.60, # Default to simulating trades with > 60% confidence
-        help="The minimum confidence score (as a decimal, e.g., 0.6) to simulate a trade."
+        default=0.55, # Default to a 55% confidence threshold for analysis
+        help="The minimum confidence score (as a decimal, e.g., 0.55) to simulate a trade."
     )
     args = parser.parse_args()
     run_backtest(args.model, args.threshold)
