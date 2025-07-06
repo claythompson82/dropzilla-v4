@@ -6,6 +6,7 @@ import argparse
 import pandas as pd
 import numpy as np
 import joblib
+from datetime import datetime, timedelta  # <-- THIS IS THE FIX
 
 from dropzilla.config import POLYGON_API_KEY, DATA_CONFIG, MODEL_CONFIG, LABELING_CONFIG, FEATURE_CONFIG
 from dropzilla.data import PolygonDataClient
@@ -47,9 +48,12 @@ def run_backtest(model_artifact_path: str, confidence_threshold: float):
     for symbol in symbols:
         df = data_client.get_aggs(symbol, from_date=from_date.strftime('%Y-%m-%d'), to_date=to_date.strftime('%Y-%m-%d'))
         if df is None or df.empty: continue
+        
         daily_df = df.resample('D').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last'}).dropna()
         daily_log_returns = np.log(daily_df['Close'] / daily_df['Close'].shift(1)).dropna()
+        
         group_with_context = pd.merge_asof(df.sort_index(), spy_df[['market_regime']].dropna(), left_index=True, right_index=True, direction='backward')
+        
         features_df = calculate_features(group_with_context, daily_log_returns, FEATURE_CONFIG)
         features_df['symbol'] = symbol
         all_data.append(features_df)

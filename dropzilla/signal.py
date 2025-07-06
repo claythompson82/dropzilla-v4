@@ -1,4 +1,4 @@
-""""
+"""
 Handles advanced signal processing, including confidence modeling and filtering.
 """
 import numpy as np
@@ -7,47 +7,27 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.calibration import CalibratedClassifierCV
 import pandas as pd
 
-
 def smooth_probabilities_kalman(probabilities: np.ndarray) -> np.ndarray:
-    """Applies a Kalman Filter to a time series of probabilities to smooth them.
-
-    The Kalman Filter estimates the 'true' underlying conviction by treating the
-    raw model probabilities as noisy measurements.
-
-    Args:
-        probabilities (np.ndarray): A 1D numpy array of raw probability scores.
-
-    Returns:
-        np.ndarray: A 1D numpy array of smoothed probability scores.
     """
-
+    Applies a Kalman Filter to a time series of probabilities to smooth them.
+    """
     if probabilities is None or len(probabilities) == 0:
         return np.array([])
 
-    # Configure the Kalman Filter. These parameters are chosen to create a
-    # simple, stable filter that tracks the input signal.
-    # transition_matrices: How the state is expected to change (we assume it's stable).
-    # observation_matrices: How the measurement relates to the state.
-    # process_covariance: The noise in the process itself (a small value).
-    # observation_covariance: The noise in our measurement (the model's probability).
     kf = KalmanFilter(
         transition_matrices=[1],
         observation_matrices=[1],
         initial_state_mean=probabilities[0],
         initial_state_covariance=1,
         transition_covariance=0.01,
-        observation_covariance=0.1,
+        observation_covariance=0.1
     )
-
-    # Apply the filter to the data
     smoothed_states, _ = kf.filter(probabilities)
-
-    # The output is the smoothed estimate of the underlying conviction
     return smoothed_states.flatten()
 
-
 def train_meta_model(meta_dataset: pd.DataFrame) -> CalibratedClassifierCV:
-    """Trains a calibrated classifier to act as the meta-model.
+    """
+    Trains a calibrated classifier to act as the meta-model.
 
     This model learns to predict the probability that the primary model's
     signal is correct.
@@ -58,29 +38,21 @@ def train_meta_model(meta_dataset: pd.DataFrame) -> CalibratedClassifierCV:
     Returns:
         CalibratedClassifierCV: The trained and calibrated meta-model.
     """
-
     if meta_dataset.empty:
         raise ValueError("Meta-dataset is empty, cannot train meta-model.")
 
-    # Define the features for the meta-model. We start simple.
-    # The primary model's own probability is a very strong feature.
-    meta_features_to_use = [
-        'primary_model_probability',
-        'relative_volume',
-        'market_regime',
-    ]
-
+    # Add our new uncertainty feature to the list
+    meta_features_to_use = ['primary_model_probability', 'relative_volume', 'market_regime', 'model_uncertainty']
+    
     X_meta = meta_dataset[meta_features_to_use]
     y_meta = meta_dataset['meta_target']
 
-    # Use a simple, robust model like Logistic Regression
     base_model = LogisticRegression(class_weight='balanced', random_state=42)
 
-    # It is CRITICAL to calibrate the meta-model so its output is a true probability
     calibrated_meta_model = CalibratedClassifierCV(
         base_model,
-        method='isotonic',  # Isotonic is fine here as we have fewer features
-        cv=3,
+        method='isotonic',
+        cv=3
     )
 
     print("Training meta-model...")
@@ -88,4 +60,3 @@ def train_meta_model(meta_dataset: pd.DataFrame) -> CalibratedClassifierCV:
     print("Meta-model training complete.")
 
     return calibrated_meta_model
-

@@ -1,9 +1,5 @@
 """
 Main script for running live predictions with a trained Dropzilla v4 model.
-
-This script loads the complete model artifact (primary + meta-model),
-fetches the latest data for a given symbol, and generates a final,
-principled confidence score.
 """
 # --- Compatibility Shim ---
 import numpy as np
@@ -27,13 +23,6 @@ from dropzilla.context import get_market_regimes
 def get_prediction(symbol: str, model_artifact_path: str) -> dict | None:
     """
     Generates a drop prediction and confidence score for a single symbol.
-
-    Args:
-        symbol (str): The stock ticker to predict on.
-        model_artifact_path (str): The path to the saved model artifact.
-
-    Returns:
-        dict | None: A dictionary with prediction details or None if an error occurs.
     """
     print(f"\n--- Generating Prediction for {symbol} ---")
 
@@ -61,6 +50,9 @@ def get_prediction(symbol: str, model_artifact_path: str) -> dict | None:
     if latest_data is None or latest_data.empty:
         print(f"Could not fetch recent data for {symbol}.")
         return None
+        
+    daily_df = latest_data.resample('D').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last'}).dropna()
+    daily_log_returns = np.log(daily_df['Close'] / daily_df['Close'].shift(1)).dropna()
 
     # 3. Add Market Context
     print("Fetching market context (SPY)...")
@@ -73,28 +65,27 @@ def get_prediction(symbol: str, model_artifact_path: str) -> dict | None:
         )
 
     # 4. Calculate Features
-    features_df = calculate_features(latest_data)
+    features_df = calculate_features(latest_data, daily_log_returns)
     
     latest_features = features_df.iloc[-1]
     X_live = latest_features[features_to_use].to_frame().T
-
-    # --- THE FIX ---
-    # Ensure all feature columns are the correct numeric type before prediction.
     X_live = X_live.astype(float)
-    # --- END FIX ---
 
     # 5. Run Primary Model
     primary_prob = primary_model.predict_proba(X_live)[:, 1][0]
     print(f"Primary model probability: {primary_prob:.4f}")
 
+    # Calculate Uncertainty for Live Prediction
+    model_uncertainty = 1 - 2 * np.abs(primary_prob - 0.5)
+
     # 6. Run Meta-Model for Final Confidence
     meta_features_data = {
         'primary_model_probability': primary_prob,
         'relative_volume': latest_features.get('relative_volume', 1.0),
-        'market_regime': latest_features.get('market_regime', 0)
+        'market_regime': latest_features.get('market_regime', 0),
+        'model_uncertainty': model_uncertainty
     }
     meta_features = pd.DataFrame([meta_features_data])
-    # Ensure dtypes match for meta-model as well
     meta_features = meta_features[meta_features_to_use].astype(float)
     
     final_confidence = meta_model.predict_proba(meta_features)[:, 1][0]
@@ -104,7 +95,7 @@ def get_prediction(symbol: str, model_artifact_path: str) -> dict | None:
         "timestamp_utc": datetime.utcnow().isoformat(),
         "primary_probability": primary_prob,
         "final_confidence_score": final_confidence,
-        "market_regime": latest_features.get('market_regime', 'N/A'),
+        "market_regime": int(latest_features.get('market_regime', -1)),
         "details": latest_features.to_dict()
     }
     

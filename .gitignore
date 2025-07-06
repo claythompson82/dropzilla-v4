@@ -1,6 +1,37 @@
+# Python bytecode
 *.pyc
 __pycache__/
-dist/
+
+# Distribution / packaging
 build/
+dist/
 *.egg-info/
+
+# Virtual Environments
+.venv/
+venv/
+env/
+
+# Test artifacts
 .pytest_cache/
+.coverage
+
+# Secrets - NEVER commit this file
+.env
+
+# IDEs / Editors
+.vscode/
+.idea/
+*.swp
+
+# Data, Models, and Caches - These can be large and should not be in git
+*.csv
+*.pkl
+*.joblib
+*.h5
+polygon_cache.joblib
+dropzilla_v4_lgbm.pkl
+.cache/
+
+# Logs
+*.log

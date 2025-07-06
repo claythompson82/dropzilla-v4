@@ -1,24 +1,25 @@
-# Core Scientific Stack
-numpy
+#Core Scientific Stack
+numpy<2.0
 pandas
 pandas-ta
 scikit-learn
 joblib
+hmmlearn
 
-# Modeling & Optimization
+#Modeling & Optimization
 lightgbm
 catboost
 hyperopt
 shap
-pykalman  # For signal smoothing
-hmmlearn
+pykalman
 
-# Data & API
+#Data & API
 polygon-api-client
 pytz
 python-dotenv
+setuptools
 
-# Testing & Linting
+#Testing & Linting
 pytest
 mypy
 types-pytz
