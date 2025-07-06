@@ -1,10 +1,22 @@
 # --- Compatibility Shim ---
+# This must be at the very top of the file.
+# It ensures that pandas_ta, which expects an older version of numpy,
+# can run without errors.
 import numpy as np
 if not hasattr(np, "NaN"):
     np.NaN = np.nan
 
 """
 Main script to run a full model training and optimization pipeline.
+
+This script orchestrates the entire process:
+1. Loads configuration.
+2. Initializes the data client.
+3. Fetches training data for a list of symbols.
+4. Performs feature engineering and labeling on a per-symbol basis.
+5. Runs Bayesian hyperparameter optimization to find the best primary model.
+6. Trains the primary model and a secondary meta-model for conviction.
+7. Saves the final, complete artifact with both models.
 """
 # --- Standard Library Imports ---
 from datetime import datetime, timedelta
@@ -43,7 +55,7 @@ def generate_meta_dataset(model_artifact_path: str,
 
     # Get standard predictions and probabilities
     primary_probabilities = primary_model.predict_proba(X)[:, 1]
-    
+
     # Calculate Model Uncertainty: a probability closer to 0.5 indicates higher uncertainty.
     model_uncertainty = 1 - 2 * np.abs(primary_probabilities - 0.5)
 
@@ -85,12 +97,12 @@ def main() -> None:
         if df is None or df.empty:
             continue
         df['symbol'] = symbol
-        
+
         daily_df = df.resample('D').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last'}).dropna()
         daily_log_returns = np.log(daily_df['Close'] / daily_df['Close'].shift(1)).dropna()
-        
+
         group_with_context = pd.merge_asof(df.sort_index(), spy_df[['market_regime']].dropna(), left_index=True, right_index=True, direction='backward')
-        
+
         features_df = calculate_features(group_with_context, daily_log_returns, FEATURE_CONFIG)
 
         atr = ta.atr(high=features_df['High'], low=features_df['Low'], close=features_df['Close'], length=LABELING_CONFIG['atr_period'])
@@ -113,7 +125,7 @@ def main() -> None:
         'mfi_14', 'obv_slope', 'market_regime', 'volatility_surprise'
     ]
     final_df = final_df.dropna(subset=features_to_use + ['drop_label', 'label_time'])
-    
+
     if final_df.empty:
         print("ERROR: No data remaining after feature calculation and cleanup. Exiting.")
         return

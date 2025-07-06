@@ -4,6 +4,7 @@ Unit tests for the feature engineering module.
 import pandas as pd
 import numpy as np
 
+# Make sure to use the correct path if your test file is in the tests/ directory
 from dropzilla.features import calculate_features
 
 def test_calculate_features_basic():
@@ -23,8 +24,10 @@ def test_calculate_features_basic():
     df = pd.DataFrame(data, index=index)
 
     # --- THE FIX ---
-    # Create a mock daily_log_returns series to pass to the function
-    mock_daily_returns = pd.Series(np.random.randn(periods), index=index)
+    # Create a mock daily_log_returns series to pass to the function.
+    # It must have a DatetimeIndex to be compatible.
+    daily_index = pd.to_datetime(pd.date_range("2023-01-01", periods=2, freq="D"))
+    mock_daily_returns = pd.Series(np.random.randn(2), index=daily_index)
     # --- END FIX ---
 
     # Call the function with the required arguments
@@ -35,4 +38,3 @@ def test_calculate_features_basic():
     assert 'relative_volume' in result.columns
     assert 'vwap' in result.columns
     assert not result.empty
-

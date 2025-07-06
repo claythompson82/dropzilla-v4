@@ -8,7 +8,8 @@ import numpy as np
 import joblib
 from datetime import datetime, timedelta
 
-from dropzilla.config import POLYGON_API_KEY, DATA_CONFIG
+# --- Local Application Imports ---
+from dropzilla.config import POLYGON_API_KEY, DATA_CONFIG, FEATURE_CONFIG
 from dropzilla.data import PolygonDataClient
 from dropzilla.features import calculate_features
 from dropzilla.context import get_market_regimes
@@ -56,7 +57,7 @@ def run_backtest(model_artifact_path: str, confidence_threshold: float):
         
         group_with_context = pd.merge_asof(df.sort_index(), spy_df[['market_regime']].dropna(), left_index=True, right_index=True, direction='backward')
         
-        features_df = calculate_features(group_with_context, daily_log_returns)
+        features_df = calculate_features(group_with_context, daily_log_returns, FEATURE_CONFIG)
         features_df['symbol'] = symbol
         all_data.append(features_df)
     
@@ -113,17 +114,7 @@ def run_backtest(model_artifact_path: str, confidence_threshold: float):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Dropzilla v4 Financial Backtest.")
-    parser.add_argument(
-        "--model",
-        type=str,
-        default="dropzilla_v4_lgbm.pkl",
-        help="Path to the model artifact file."
-    )
-    parser.add_argument(
-        "--threshold",
-        type=float,
-        default=0.55,
-        help="The minimum confidence score (as a decimal, e.g., 0.55) to simulate a trade."
-    )
+    parser.add_argument("--model", type=str, default="dropzilla_v4_lgbm.pkl", help="Path to the model artifact file.")
+    parser.add_argument("--threshold", type=float, default=0.55, help="The minimum confidence score (as a decimal, e.g., 0.55) to simulate a trade.")
     args = parser.parse_args()
     run_backtest(args.model, args.threshold)
