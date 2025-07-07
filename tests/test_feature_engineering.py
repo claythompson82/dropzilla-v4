@@ -24,14 +24,13 @@ def test_calculate_features_basic():
     df = pd.DataFrame(data, index=index)
 
     # --- THE FIX ---
-    # Create a mock daily_log_returns series to pass to the function.
-    # It must have a DatetimeIndex to be compatible.
-    daily_index = pd.to_datetime(pd.date_range("2023-01-01", periods=2, freq="D"))
-    mock_daily_returns = pd.Series(np.random.randn(2), index=daily_index)
+    # Create mock data for the new required arguments
+    mock_daily_returns = pd.Series(np.random.randn(2), index=pd.to_datetime(pd.date_range("2023-01-01", periods=2, freq="D")))
+    mock_tick_data = pd.DataFrame() # Can be empty for this test
     # --- END FIX ---
 
     # Call the function with the required arguments
-    result = calculate_features(df, mock_daily_returns)
+    result = calculate_features(df, mock_tick_data, mock_daily_returns)
 
     # Assertions
     assert isinstance(result, pd.DataFrame)

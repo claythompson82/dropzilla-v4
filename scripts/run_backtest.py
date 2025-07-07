@@ -13,6 +13,8 @@ from dropzilla.config import POLYGON_API_KEY, DATA_CONFIG, FEATURE_CONFIG
 from dropzilla.data import PolygonDataClient
 from dropzilla.features import calculate_features
 from dropzilla.context import get_market_regimes
+from dropzilla.correlation import get_systemic_absorption_ratio
+from dropzilla.volatility import get_volatility_regime_anomaly
 
 def run_backtest(model_artifact_path: str, confidence_threshold: float):
     """
@@ -36,35 +38,49 @@ def run_backtest(model_artifact_path: str, confidence_threshold: float):
         print(f"Error loading model artifact: {e}")
         return
 
+    # 2. Data Collection (Mirrors the training script logic)
     data_client = PolygonDataClient(api_key=POLYGON_API_KEY)
     symbols = ["AAPL", "MSFT", "NVDA", "TSLA", "GOOG"]
     to_date = datetime.now()
     from_date = to_date - timedelta(days=DATA_CONFIG['data_period_days'])
     
-    print("Fetching context data...")
+    print("Fetching all market data...")
+    market_data = {
+        symbol: data_client.get_aggs(symbol, from_date.strftime('%Y-%m-%d'), to_date.strftime('%Y-%m-%d'))
+        for symbol in symbols
+    }
+    market_data = {k: v for k, v in market_data.items() if v is not None and not v.empty}
+    
     spy_df = data_client.get_aggs("SPY", from_date=(from_date - timedelta(days=50)).strftime('%Y-%m-%d'), to_date=to_date.strftime('%Y-%m-%d'), timespan='day')
     if spy_df is not None and not spy_df.empty:
         spy_df['market_regime'] = get_market_regimes(spy_df)
 
-    all_data = []
-    for symbol in symbols:
-        print(f"Fetching full dataset for {symbol}...")
-        df = data_client.get_aggs(symbol, from_date=from_date.strftime('%Y-%m-%d'), to_date=to_date.strftime('%Y-%m-%d'))
-        if df is None or df.empty: continue
-        
-        daily_df = df.resample('D').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last'}).dropna()
-        daily_log_returns = np.log(daily_df['Close'] / daily_df['Close'].shift(1)).dropna()
-        
-        group_with_context = pd.merge_asof(df.sort_index(), spy_df[['market_regime']].dropna(), left_index=True, right_index=True, direction='backward')
-        
-        features_df = calculate_features(group_with_context, daily_log_returns, FEATURE_CONFIG)
-        features_df['symbol'] = symbol
-        all_data.append(features_df)
-    
-    backtest_df = pd.concat(all_data).dropna(subset=features_to_use)
-    print(f"Loaded {len(backtest_df)} total data points for backtest.")
+    # 3. Feature Engineering (Mirrors the training script logic)
+    all_featured_data = []
+    daily_returns_panel = pd.DataFrame({
+        symbol: df['Close'].resample('D').last().pct_change() for symbol, df in market_data.items()
+    }).dropna(how='all')
+    sar_scores = get_systemic_absorption_ratio(daily_returns_panel)
 
-    # 2. Generate Signals for Entire Dataset
+    for symbol, df in market_data.items():
+        print(f"\nProcessing features for {symbol}...")
+        daily_rv = df['Close'].resample('D').last().pct_change().rolling(window=21).std() * np.sqrt(252)
+        vra_scores = get_volatility_regime_anomaly(daily_rv.dropna())
+        
+        df_context = pd.merge_asof(df.sort_index(), spy_df[['market_regime']].dropna(), left_index=True, right_index=True, direction='backward')
+        df_context = pd.merge_asof(df_context, sar_scores.to_frame(name='sar_score'), left_index=True, right_index=True, direction='backward')
+        df_context = pd.merge_asof(df_context, vra_scores.to_frame(name='vra_score'), left_index=True, right_index=True, direction='backward')
+        df_context[['sar_score', 'vra_score']] = df_context[['sar_score', 'vra_score']].ffill().fillna(0)
+
+        daily_log_returns = np.log(df['Close'].resample('D').last().pct_change()).dropna()
+        features_df = calculate_features(df_context, daily_log_returns, FEATURE_CONFIG)
+        features_df['symbol'] = symbol
+        all_featured_data.append(features_df)
+
+    backtest_df = pd.concat(all_featured_data).dropna(subset=features_to_use)
+    print(f"\nLoaded {len(backtest_df)} total data points for backtest.")
+
+    # 4. Generate Signals for Entire Dataset
     print("Generating historical signals...")
     X = backtest_df[features_to_use]
     primary_probs = primary_model.predict_proba(X)[:, 1]
@@ -75,21 +91,23 @@ def run_backtest(model_artifact_path: str, confidence_threshold: float):
         'primary_model_probability': primary_probs,
         'relative_volume': backtest_df['relative_volume'],
         'market_regime': backtest_df['market_regime'],
-        'model_uncertainty': model_uncertainty
+        'model_uncertainty': model_uncertainty,
+        'sar_score': backtest_df['sar_score'],
+        'vra_score': backtest_df['vra_score']
     })
     final_confidences = meta_model.predict_proba(meta_features_df[meta_features_to_use])[:, 1]
     
     backtest_df['confidence'] = final_confidences
     backtest_df['signal'] = (backtest_df['confidence'] > confidence_threshold).astype(int)
 
-    # 3. Simulate Trades and Calculate Returns
+    # 5. Simulate Trades and Calculate Returns
     print("Simulating trades...")
     backtest_df['forward_return'] = backtest_df.groupby('symbol')['Close'].pct_change(periods=-60).shift(60)
     
     trade_returns = backtest_df[backtest_df['signal'] == 1]['forward_return']
     trade_returns = -trade_returns # Invert for short positions
 
-    # 4. Calculate and Print Performance Metrics
+    # 6. Calculate and Print Performance Metrics
     print("\n--- Backtest Performance Metrics ---")
     num_trades = len(trade_returns)
     if num_trades == 0:

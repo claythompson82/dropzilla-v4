@@ -4,7 +4,7 @@ pandas
 pandas-ta
 scikit-learn
 joblib
-hmmlearn
+arch
 
 #Modeling & Optimization
 lightgbm

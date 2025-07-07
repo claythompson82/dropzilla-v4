@@ -14,6 +14,14 @@ def calculate_features(df: pd.DataFrame,
                        config: dict | None = None) -> pd.DataFrame:
     """
     Calculates all v4 features for the given OHLCV data.
+
+    Args:
+        df (pd.DataFrame): Input DataFrame with minute-level OHLCV data.
+        daily_log_returns (pd.Series): A Series of daily log returns for the same asset.
+        config (dict, optional): Configuration dictionary. Defaults to None.
+
+    Returns:
+        pd.DataFrame: The original DataFrame augmented with new feature columns.
     """
     if df.empty:
         return df
