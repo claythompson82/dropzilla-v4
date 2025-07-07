@@ -1,59 +1,54 @@
 """
-Handles advanced signal processing, including confidence modeling and filtering.
+Handles the meta-model training and conviction score generation.
 """
-import numpy as np
-from pykalman import KalmanFilter
 from sklearn.linear_model import LogisticRegression
 from sklearn.calibration import CalibratedClassifierCV
 import pandas as pd
 
-def smooth_probabilities_kalman(probabilities: np.ndarray) -> np.ndarray:
-    """
-    Applies a Kalman Filter to a time series of probabilities to smooth them.
-    """
-    if probabilities is None or len(probabilities) == 0:
-        return np.array([])
-
-    kf = KalmanFilter(
-        transition_matrices=[1],
-        observation_matrices=[1],
-        initial_state_mean=probabilities[0],
-        initial_state_covariance=1,
-        transition_covariance=0.01,
-        observation_covariance=0.1
-    )
-    smoothed_states, _ = kf.filter(probabilities)
-    return smoothed_states.flatten()
-
 def train_meta_model(meta_dataset: pd.DataFrame) -> CalibratedClassifierCV:
     """
-    Trains a calibrated classifier to act as the meta-model.
-    """
-    if meta_dataset.empty:
-        raise ValueError("Meta-dataset is empty, cannot train meta-model.")
+    Trains and calibrates the secondary meta-model.
 
-    # Add our new SAR score feature to the list of predictors
+    Args:
+        meta_dataset (pd.DataFrame): The dataset of candidate signals from the primary model.
+
+    Returns:
+        CalibratedClassifierCV: The trained and calibrated conviction model.
+    """
+    print("Training conviction meta-model...")
+
+    # Define features and target for the meta-model
     meta_features_to_use = [
         'primary_model_probability',
         'relative_volume',
         'market_regime',
         'model_uncertainty',
-        'sar_score' # NEW FEATURE
+        'sar_score',
+        'vra_score'
     ]
-    
+    # Ensure all required columns exist
+    for col in meta_features_to_use:
+        if col not in meta_dataset.columns:
+            raise ValueError(f"Meta-dataset is missing required feature: {col}")
+
     X_meta = meta_dataset[meta_features_to_use]
     y_meta = meta_dataset['meta_target']
 
-    base_model = LogisticRegression(class_weight='balanced', random_state=42)
+    print(f"Meta-model training data shape: {X_meta.shape}")
+    print(f"Meta-model target distribution:\n{y_meta.value_counts(normalize=True)}")
 
+    # --- THE FIX: Handle class imbalance in the meta-model ---
+    # The base estimator is a Logistic Regression that now balances class weights.
+    lr = LogisticRegression(class_weight='balanced', random_state=42)
+    # --- END FIX ---
+
+    # We still calibrate this model to ensure its probabilities are reliable.
     calibrated_meta_model = CalibratedClassifierCV(
-        base_model,
-        method='isotonic',
+        estimator=lr,
+        method='isotonic', # Isotonic is fine for the simpler meta-model
         cv=3
     )
 
-    print("Training meta-model...")
     calibrated_meta_model.fit(X_meta, y_meta)
-    print("Meta-model training complete.")
 
     return calibrated_meta_model

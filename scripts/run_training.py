@@ -68,16 +68,16 @@ def main() -> None:
         symbol: data_client.get_aggs(
             symbol,
             from_date=from_date.strftime('%Y-%m-%d'),
-            to_date=to_date.strftime('%Y-%m-%d') # THE FIX: Added 'to_date='
+            to_date=to_date.strftime('%Y-%m-%d')
         )
         for symbol in symbols_to_train
     }
     market_data = {k: v for k, v in market_data.items() if v is not None and not v.empty}
-    
+
     spy_df = data_client.get_aggs(
         "SPY",
         from_date=(from_date - timedelta(days=50)).strftime('%Y-%m-%d'),
-        to_date=to_date.strftime('%Y-%m-%d'), # THE FIX: Added 'to_date='
+        to_date=to_date.strftime('%Y-%m-%d'),
         timespan='day'
     )
     if spy_df is not None and not spy_df.empty:
@@ -85,7 +85,7 @@ def main() -> None:
 
     # 3. Cross-Sectional & Per-Symbol Feature Engineering
     all_labeled_data = []
-    
+
     daily_returns_panel = pd.DataFrame({
         symbol: df['Close'].resample('D').last().pct_change() for symbol, df in market_data.items()
     }).dropna(how='all')
@@ -93,10 +93,10 @@ def main() -> None:
 
     for symbol, df in market_data.items():
         print(f"\nProcessing features and labels for {symbol}...")
-        
+
         daily_rv = df['Close'].resample('D').last().pct_change().rolling(window=21).std() * np.sqrt(252)
         vra_scores = get_volatility_regime_anomaly(daily_rv.dropna())
-        
+
         df_context = pd.merge_asof(df.sort_index(), spy_df[['market_regime']].dropna(), left_index=True, right_index=True, direction='backward')
         df_context = pd.merge_asof(df_context, sar_scores.to_frame(name='sar_score'), left_index=True, right_index=True, direction='backward')
         df_context = pd.merge_asof(df_context, vra_scores.to_frame(name='vra_score'), left_index=True, right_index=True, direction='backward')
@@ -104,7 +104,7 @@ def main() -> None:
 
         daily_log_returns = np.log(df['Close'].resample('D').last().pct_change()).dropna()
         features_df = calculate_features(df_context, daily_log_returns, FEATURE_CONFIG)
-        
+
         atr = ta.atr(high=features_df['High'], low=features_df['Low'], close=features_df['Close'], length=LABELING_CONFIG['atr_period'])
         target_volatility = atr.reindex(features_df.index).fillna(method='bfill')
         vertical_barrier_times = features_df.index.to_series() + pd.Timedelta(minutes=LABELING_CONFIG['vertical_barrier_minutes'])
@@ -121,7 +121,7 @@ def main() -> None:
         'mfi_14', 'obv_slope', 'market_regime', 'volatility_surprise', 'sar_score', 'vra_score'
     ]
     final_df = final_df.dropna(subset=features_to_use + ['drop_label', 'label_time'])
-    
+
     if final_df.empty:
         print("ERROR: No data remaining after feature calculation and cleanup. Exiting.")
         return
@@ -137,7 +137,7 @@ def main() -> None:
     print("\n--- Starting Hyperparameter Optimization ---")
     cv_validator = PurgedKFold(n_splits=MODEL_CONFIG['cv_n_splits'], label_times=label_times, embargo_pct=MODEL_CONFIG['cv_embargo_pct'])
     best_params, _ = optimize_hyperparameters(X, y, cv_validator, max_evals=MODEL_CONFIG['optimization_max_evals'])
-    
+
     print("\n--- Training Final Primary Model on All Data ---")
     final_params = best_params.copy()
     for param in ['n_estimators', 'num_leaves', 'max_depth', 'min_child_samples']:
@@ -152,7 +152,10 @@ def main() -> None:
     print(f"✅ Primary model artifact saved to: {model_filename}")
 
     # 6. Meta-Model Training
-    meta_dataset = generate_meta_dataset(model_filename, final_df)
+    # --- THE FIX: Increase the threshold to generate a higher-quality, more balanced dataset for the meta-model ---
+    meta_dataset = generate_meta_dataset(model_filename, final_df, probability_threshold=0.5)
+    # --- END FIX ---
+
     if meta_dataset is not None and not meta_dataset.empty:
         meta_model = train_meta_model(meta_dataset)
         model_artifact['meta_model'] = meta_model
