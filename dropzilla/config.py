@@ -32,6 +32,7 @@ FEATURE_CONFIG = {
 
 # --- Model Training Configuration ---
 MODEL_CONFIG = {
+    "use_gpu": False,
     "model_filename": "dropzilla_v4_lgbm.pkl",
     "cv_n_splits": 5,
     "cv_embargo_pct": 0.01,

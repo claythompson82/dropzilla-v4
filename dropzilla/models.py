@@ -12,6 +12,7 @@ import pandas as pd
 from typing import Dict, Any, Tuple, List
 from sklearn.metrics import roc_auc_score
 from hyperopt import fmin, tpe, hp, Trials, STATUS_OK
+from dropzilla.config import MODEL_CONFIG
 
 def train_lightgbm_model(X_train: pd.DataFrame,
                          y_train: pd.Series,
@@ -32,6 +33,13 @@ def train_lightgbm_model(X_train: pd.DataFrame,
         'verbose': -1,
     }
     # --- END FIX ---
+
+    if MODEL_CONFIG.get("use_gpu"):
+        default_params.update({
+            "device_type": "gpu",
+            "gpu_platform_id": 0,
+            "gpu_device_id": 0,
+        })
 
     if params:
         default_params.update(params)

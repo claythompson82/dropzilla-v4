@@ -9,7 +9,7 @@ import joblib
 from datetime import datetime, timedelta
 
 # --- Local Application Imports ---
-from dropzilla.config import POLYGON_API_KEY, DATA_CONFIG, FEATURE_CONFIG
+from dropzilla.config import POLYGON_API_KEY, DATA_CONFIG, FEATURE_CONFIG, MODEL_CONFIG
 from dropzilla.data import PolygonDataClient
 from dropzilla.features import calculate_features
 from dropzilla.context import get_market_regimes
@@ -144,5 +144,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Dropzilla v4 Financial Backtest.")
     parser.add_argument("--model", type=str, default="dropzilla_v4_lgbm.pkl", help="Path to the model artifact file.")
     parser.add_argument("--threshold", type=float, default=0.55, help="The minimum confidence score to simulate a trade.")
+    parser.add_argument("--use_gpu", action="store_true", help="Enable GPU acceleration")
     args = parser.parse_args()
+    MODEL_CONFIG["use_gpu"] = args.use_gpu
     run_backtest(args.model, args.threshold)
