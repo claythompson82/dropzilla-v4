@@ -1,81 +1,70 @@
 """
-Handles all feature engineering logic for Dropzilla v4.
+Handles all feature engineering for the Dropzilla model.
+This version includes robust data type handling to prevent errors.
 """
-import numpy as np
 import pandas as pd
+import numpy as np
 import pandas_ta as ta
 from dropzilla.volatility import get_mc_garch_volatility_forecast
 
-if not hasattr(np, "NaN"):
-    np.NaN = np.nan
-
-def calculate_features(df: pd.DataFrame,
-                       daily_log_returns: pd.Series,
-                       config: dict | None = None) -> pd.DataFrame:
+def calculate_features(df: pd.DataFrame, daily_log_returns: pd.Series, config: dict) -> pd.DataFrame:
     """
-    Calculates all v4 features for the given OHLCV data.
-
-    Args:
-        df (pd.DataFrame): Input DataFrame with minute-level OHLCV data.
-        daily_log_returns (pd.Series): A Series of daily log returns for the same asset.
-        config (dict, optional): Configuration dictionary. Defaults to None.
-
-    Returns:
-        pd.DataFrame: The original DataFrame augmented with new feature columns.
+    Calculates all features for the model.
     """
-    if df.empty:
-        return df
+    # Work on a copy to prevent SettingWithCopyWarning
+    features_df = df.copy()
+    
+    # --- ROBUSTNESS FIX: Ensure OHLCV data are floats to prevent dtype errors ---
+    for col in ['Open', 'High', 'Low', 'Close', 'Volume', 'Vwap']:
+        if col in features_df.columns:
+            features_df[col] = pd.to_numeric(features_df[col], errors='coerce')
+    # --- END FIX ---
 
-    # (All other feature calculations remain)
-    avg_vol_period = 50
-    df['avg_volume'] = df['Volume'].rolling(window=avg_vol_period, min_periods=avg_vol_period).mean()
-    df['relative_volume'] = (df['Volume'] / df['avg_volume']).fillna(1.0)
-    vwap = ta.vwap(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
-    if vwap is not None:
-        df['vwap'] = vwap
-        df['distance_from_vwap_pct'] = (df['Close'] - df['vwap']) / df['vwap']
-        df['vwap_slope'] = ta.slope(df['vwap'], length=10)
-    else:
-        df['vwap'] = np.nan
-        df['distance_from_vwap_pct'] = np.nan
-        df['vwap_slope'] = np.nan
-    df['roc_30'] = ta.roc(df['Close'], length=30)
-    df['roc_60'] = ta.roc(df['Close'], length=60)
-    df['roc_120'] = ta.roc(df['Close'], length=120)
-    df['rsi_14'] = ta.rsi(df['Close'], length=14)
-    df['rsi_14_sma_5'] = ta.sma(df['rsi_14'], length=5)
-    macd = ta.macd(df['Close'], fast=12, slow=26, signal=9)
-    if macd is not None:
-        df['macd_line'] = macd['MACD_12_26_9']
-        df['macd_signal'] = macd['MACDs_12_26_9']
-        df['macd_hist'] = macd['MACDh_12_26_9']
-        df['macd_hist_diff'] = df['macd_hist'].diff()
-    df['mfi_14'] = ta.mfi(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'], length=14)
-    obv = ta.obv(df['Close'], df['Volume'])
-    if obv is not None:
-        df['obv'] = obv
-        df['obv_slope'] = ta.slope(df['obv'], length=10)
+    features_df.ta.rsi(length=config['rsi_period'], append=True)
+    features_df.ta.macd(fast=config['macd_fast'], slow=config['macd_slow'], signal=config['macd_signal'], append=True)
+    features_df.ta.mfi(length=config['mfi_period'], append=True)
+    features_df.ta.obv(append=True)
+
+    features_df['relative_volume'] = features_df['Volume'] / features_df['Volume'].rolling(window=config['relative_volume_period']).mean()
+    features_df['vwap_slope'] = features_df['Vwap'].rolling(window=config['vwap_slope_period']).apply(
+        lambda x: np.polyfit(range(len(x)), x, 1)[0], raw=False
+    )
+    features_df['distance_from_vwap_pct'] = (features_df['Close'] - features_df['Vwap']) / features_df['Vwap'] * 100
+    features_df['roc_30'] = features_df['Close'].pct_change(periods=30)
+    features_df['roc_60'] = features_df['Close'].pct_change(periods=60)
+    features_df['roc_120'] = features_df['Close'].pct_change(periods=120)
+
+    features_df['rsi_14_sma_5'] = features_df[f'RSI_{config["rsi_period"]}'].rolling(window=5).mean()
+    features_df['macd_hist_diff'] = features_df[f'MACDh_{config["macd_fast"]}_{config["macd_slow"]}_{config["macd_signal"]}'].diff()
+    features_df['obv_slope'] = features_df['OBV'].rolling(window=10).apply(
+        lambda x: np.polyfit(range(len(x)), x, 1)[0], raw=False
+    )
 
     try:
-        intraday_log_returns = np.log(df['Close'] / df['Close'].shift(1)).fillna(0)
-        mc_garch_forecast = get_mc_garch_volatility_forecast(daily_log_returns, intraday_log_returns)
-        if mc_garch_forecast is not None and not mc_garch_forecast.empty:
-            last_timestamp = mc_garch_forecast.index[0] - pd.Timedelta(minutes=1)
-            realized_vol_at_forecast = intraday_log_returns.rolling(window=21).std().get(last_timestamp)
-            if realized_vol_at_forecast is not None and mc_garch_forecast.iloc[0] > 0:
-                surprise = (realized_vol_at_forecast - mc_garch_forecast.iloc[0]) / mc_garch_forecast.iloc[0]
-                df['volatility_surprise'] = 0.0
-                df.loc[last_timestamp, 'volatility_surprise'] = surprise
+        clean_daily_returns = daily_log_returns.replace([np.inf, -np.inf], np.nan).dropna()
+        if not clean_daily_returns.empty:
+            intraday_log_returns = np.log(features_df['Close']).diff().dropna()
+            if not intraday_log_returns.empty:
+                garch_forecast = get_mc_garch_volatility_forecast(clean_daily_returns, intraday_log_returns)
+                realized_vol = intraday_log_returns.rolling(window=config['garch_realized_vol_period']).std()
+                surprise = (realized_vol - garch_forecast.iloc[0]) / garch_forecast.iloc[0]
+                features_df['volatility_surprise'] = surprise
             else:
-                df['volatility_surprise'] = 0.0
+                features_df['volatility_surprise'] = 0
         else:
-            df['volatility_surprise'] = 0.0
+            features_df['volatility_surprise'] = 0
     except Exception as e:
-        print(f"Warning: Could not calculate GARCH feature. Setting to 0. Error: {e}")
-        df['volatility_surprise'] = 0.0
-    
-    columns_to_drop = ['avg_volume']
-    df = df.drop(columns=[col for col in columns_to_drop if col in df.columns])
-    df = df.fillna(method='bfill').fillna(method='ffill')
+        print(f"Warning: Could not calculate GARCH feature. Setting to 0. Error: {e}", flush=True)
+        features_df['volatility_surprise'] = 0
+        
+    features_df['volatility_surprise'] = features_df['volatility_surprise'].fillna(0)
 
-    return df
+    features_df = features_df.rename(columns={
+        f'RSI_{config["rsi_period"]}': 'rsi_14',
+        f'MACD_{config["macd_fast"]}_{config["macd_slow"]}_{config["macd_signal"]}': 'macd_line',
+        f'MACDs_{config["macd_fast"]}_{config["macd_slow"]}_{config["macd_signal"]}': 'macd_signal',
+        f'MACDh_{config["macd_fast"]}_{config["macd_slow"]}_{config["macd_signal"]}': 'macd_hist',
+        f'MFI_{config["mfi_period"]}': 'mfi_14'
+    })
+    
+    return features_df

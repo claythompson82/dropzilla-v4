@@ -4,7 +4,6 @@ from tkinter.scrolledtext import ScrolledText
 import os
 import subprocess
 import threading
-import time
 import queue
 import joblib
 import pandas as pd
@@ -19,25 +18,42 @@ from dropzilla.context import get_market_regimes
 from dropzilla.correlation import get_systemic_absorption_ratio
 from dropzilla.volatility import get_volatility_regime_anomaly
 
-# --- Training Progress Window Class ---
+# --- NEW: Custom Error Window ---
+class ErrorWindow(tk.Toplevel):
+    def __init__(self, parent, error_message):
+        super().__init__(parent)
+        self.title("Training Error")
+        self.geometry("800x600")
+        self.configure(bg="#2E2E2E")
+
+        label = ttk.Label(self, text="The training process failed with the following error:", font=("Arial", 12, "bold"))
+        label.pack(pady=10, padx=10)
+
+        log_text = ScrolledText(self, wrap=tk.WORD, bg="#1E1E1E", fg="#FF5555", font=("Courier New", 10), relief=tk.FLAT)
+        log_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        log_text.insert(tk.END, error_message)
+        log_text.config(state=tk.DISABLED) # Make it read-only
+
+        close_button = ttk.Button(self, text="Close", command=self.destroy)
+        close_button.pack(pady=10)
+
+# --- Training Progress Window Class (Unchanged but included for completeness) ---
 class TrainingProgressWindow(tk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.title("Training Progress")
         self.geometry("700x500")
         self.configure(bg="#2E2E2E")
-        self.protocol("WM_DELETE_WINDOW", self.on_closing) # Handle window close button
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         self.progress_queue = queue.Queue()
         self.parent = parent
 
-        # Styling
         style = ttk.Style(self)
         style.configure("Progress.TLabel", background="#2E2E2E", foreground="white", font=("Arial", 11))
         style.configure("Overall.Horizontal.TProgressbar", background='#007ACC', troughcolor='#4A4A4A')
         style.configure("Detail.Horizontal.TProgressbar", background='#2ECC71', troughcolor='#4A4A4A')
 
-        # Widgets
         main_frame = ttk.Frame(self, padding="15")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -70,19 +86,22 @@ class TrainingProgressWindow(tk.Toplevel):
     def handle_message(self, message):
         if message.startswith("PROGRESS::"):
             parts = message.strip().split("::")
-            _, p_type, progress_str, status = parts
-            
-            if p_type == "OVERALL":
+            p_type = parts[1]
+
+            if p_type in ["OVERALL", "DETAIL"] and len(parts) == 4:
+                _, _, progress_str, status = parts
                 current, total = map(int, progress_str.split('/'))
-                self.overall_progress['value'] = (current / total) * 100
-                self.overall_status_label.config(text=f"Step {current}/{total}: {status}")
-                self.detail_progress['value'] = 0
-                self.detail_status_label.config(text="")
-            elif p_type == "DETAIL":
-                current, total = map(int, progress_str.split('/'))
-                self.detail_progress['value'] = (current / total) * 100
-                self.detail_status_label.config(text=status)
-            elif p_type == "STATUS":
+                progress_value = (current / total) * 100
+                if p_type == "OVERALL":
+                    self.overall_progress['value'] = progress_value
+                    self.overall_status_label.config(text=f"Step {current}/{total}: {status}")
+                    self.detail_progress['value'] = 0
+                    self.detail_status_label.config(text="")
+                else:
+                    self.detail_progress['value'] = progress_value
+                    self.detail_status_label.config(text=status)
+            elif p_type == "STATUS" and len(parts) == 3:
+                _, _, status = parts
                 self.detail_status_label.config(text=status)
         elif message == "TRAINING_COMPLETE":
             self.overall_progress['value'] = 100
@@ -93,17 +112,16 @@ class TrainingProgressWindow(tk.Toplevel):
             self.parent.on_training_finish(success=True)
         elif message.startswith("TRAINING_ERROR"):
             error_msg = message.split("::", 1)[1]
-            messagebox.showerror("Training Failed", f"An error occurred:\n{error_msg}", parent=self)
+            ErrorWindow(self.parent, error_msg) # Use the new error window
             self.parent.on_training_finish(success=False)
+            self.destroy() # Close the progress window on error
         else:
             self.log_text.insert(tk.END, message + "\n")
             self.log_text.see(tk.END)
 
     def on_closing(self):
         if messagebox.askokcancel("Quit", "Do you want to abort the training process?", parent=self):
-            # In a real app, you'd need a way to kill the subprocess here.
-            # For now, we just close the window.
-            self.parent.on_training_finish(success=False) # Signal that training didn't complete
+            self.parent.on_training_finish(success=False)
             self.destroy()
 
 # --- Main Application Class ---
@@ -115,7 +133,6 @@ class DropzillaApp(tk.Tk):
         self.style = ttk.Style(self)
         self.configure(bg="#2E2E2E")
         self.style.theme_use("clam")
-        # ... (rest of styling is the same)
         self.style.configure("TFrame", background="#2E2E2E")
         self.style.configure("TLabel", background="#2E2E2E", foreground="white", font=("Arial", 10))
         self.style.configure("TButton", background="#4A4A4A", foreground="white", font=("Arial", 10, "bold"), borderwidth=0)
@@ -132,12 +149,11 @@ class DropzillaApp(tk.Tk):
         self.current_model_artifact = None
         self.is_running = False
         self.after_id = None
-        
+
         self._create_widgets()
         self.update_model_dropdown()
 
     def _create_widgets(self):
-        # ... (This method is largely the same, no need to re-paste all of it)
         main_frame = ttk.Frame(self, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
         control_frame = ttk.Frame(main_frame, padding="10")
@@ -191,12 +207,11 @@ class DropzillaApp(tk.Tk):
             messagebox.showerror("Error", "Model name must end with .pkl")
             return
         model_path = os.path.join(self.MODELS_DIR, model_name)
-        
+
         self.train_button.config(state=tk.DISABLED)
-        
-        # Create and show the progress window
+
         self.progress_window = TrainingProgressWindow(self)
-        
+
         thread = threading.Thread(target=self.run_training_process, args=(tickers, model_path, self.progress_window.progress_queue))
         thread.daemon = True
         thread.start()
@@ -205,15 +220,14 @@ class DropzillaApp(tk.Tk):
         try:
             command = ["python", "scripts/run_training.py", "--tickers", tickers, "--model_name", model_path]
             process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, universal_newlines=True)
-            
-            # Send stdout to the queue
+
             for line in process.stdout:
                 q.put(line.strip())
-            
+
             process.wait()
-            
+
+            stderr_output = process.stderr.read()
             if process.returncode != 0:
-                stderr_output = process.stderr.read()
                 q.put(f"TRAINING_ERROR::{stderr_output}")
             else:
                 q.put("TRAINING_COMPLETE")
@@ -221,15 +235,10 @@ class DropzillaApp(tk.Tk):
             q.put(f"TRAINING_ERROR::Failed to start training process: {e}")
 
     def on_training_finish(self, success: bool):
-        """Callback function when training window is closed or finishes."""
         self.train_button.config(state=tk.NORMAL)
         self.status_var.set("Ready.")
         if success:
             self.update_model_dropdown()
-            
-    # --- All other methods (update_model_dropdown, on_model_select, start_monitoring, etc.) remain the same ---
-    # --- For brevity, they are not repeated here but should be in your final script. ---
-    # --- The fetch_and_predict logic from the previous turn should be included. ---
 
     def update_model_dropdown(self):
         models = sorted([f for f in os.listdir(self.MODELS_DIR) if f.endswith(".pkl")], reverse=True)
@@ -246,7 +255,7 @@ class DropzillaApp(tk.Tk):
             self.current_model_artifact = joblib.load(model_path)
             self.status_var.set(f"Loaded model: {model_file}. Ready to start monitoring.")
         except Exception as e:
-            messagebox.showerror("Model Load Error", f"Failed to load model: {e}")
+            ErrorWindow(self, f"Failed to load model:\n\n{e}")
             self.current_model_artifact = None
 
     def start_monitoring(self):
@@ -282,7 +291,7 @@ class DropzillaApp(tk.Tk):
             self.status_var.set(f"[{datetime.now().strftime('%H:%M:%S')}] Fetching latest data...")
             primary_model = self.current_model_artifact['model']
             features_to_use = self.current_model_artifact['features_to_use']
-            
+
             data_client = PolygonDataClient(api_key=POLYGON_API_KEY)
             symbols = [s.strip().upper() for s in self.ticker_entry.get().split(',')]
             to_date = datetime.now()
@@ -290,7 +299,7 @@ class DropzillaApp(tk.Tk):
 
             market_data = {s: data_client.get_aggs(s, from_date.strftime('%Y-%m-%d'), to_date.strftime('%Y-%m-%d')) for s in symbols}
             market_data = {k: v for k, v in market_data.items() if v is not None and not v.empty}
-            
+
             if not market_data:
                 self.status_var.set("Could not fetch data for any tickers.")
                 return
@@ -298,9 +307,9 @@ class DropzillaApp(tk.Tk):
             spy_df = data_client.get_aggs("SPY", from_date.strftime('%Y-%m-%d'), to_date.strftime('%Y-%m-%d'), timespan='day')
             if spy_df is not None and not spy_df.empty:
                 spy_df['market_regime'] = get_market_regimes(spy_df)
-            
+
             self.status_var.set(f"[{datetime.now().strftime('%H:%M:%S')}] Generating features and signals...")
-            
+
             daily_returns_panel = pd.DataFrame({s: df['Close'].resample('D').last().pct_change() for s, df in market_data.items()}).dropna(how='all')
             sar_scores = get_systemic_absorption_ratio(daily_returns_panel)
 
@@ -308,22 +317,22 @@ class DropzillaApp(tk.Tk):
             for symbol, df in market_data.items():
                 daily_rv = df['Close'].resample('D').last().pct_change().rolling(window=21).std() * np.sqrt(252)
                 vra_scores = get_volatility_regime_anomaly(daily_rv.dropna())
-                
+
                 df_context = pd.merge_asof(df.sort_index(), spy_df[['market_regime']].dropna(), left_index=True, right_index=True, direction='backward')
                 df_context = pd.merge_asof(df_context, sar_scores.to_frame(name='sar_score'), left_index=True, right_index=True, direction='backward')
                 df_context = pd.merge_asof(df_context, vra_scores.to_frame(name='vra_score'), left_index=True, right_index=True, direction='backward')
                 df_context[['sar_score', 'vra_score']] = df_context[['sar_score', 'vra_score']].ffill().fillna(0)
-                
-                daily_log_returns = np.log(df['Close'].resample('D').last().pct_change()).dropna()
+
+                daily_log_returns = np.log(df['Close'][df['Close'] > 0]).resample('D').last().diff().dropna()
                 features_df = calculate_features(df_context, daily_log_returns, FEATURE_CONFIG)
-                
+
                 latest_features = features_df.reindex(columns=features_to_use).iloc[-1:]
                 if latest_features.isnull().values.any():
                     print(f"Skipping {symbol}, not enough data for all features.")
                     continue
-                
+
                 primary_prob = primary_model.predict_proba(latest_features)[0, 1]
-                
+
                 p_calibrated = primary_prob
                 prob_stability = 1 - (pd.Series(primary_model.predict_proba(features_df[features_to_use].tail(5))[:,1]).std() / 0.5).clip(0,1)
                 regime_map = {0: 0.8, 1: 0.5, 2: 1.0}
@@ -344,12 +353,12 @@ class DropzillaApp(tk.Tk):
             self.status_var.set(f"[{datetime.now().strftime('%H:%M:%S')}] Update complete. Next refresh in 5 minutes.")
 
         except Exception as e:
-            self.status_var.set(f"An error occurred during prediction: {e}")
+            ErrorWindow(self, f"An error occurred during prediction:\n\n{e}")
             print(f"Prediction error: {e}")
 
     def update_table(self, signals):
         sorted_signals = sorted(signals, key=lambda x: float(x['confidence'].strip('%')), reverse=True)
-        
+
         for i in self.tree.get_children():
             self.tree.delete(i)
         for signal in sorted_signals:
