@@ -4,6 +4,8 @@ Handles the meta-model training and conviction score generation.
 from sklearn.linear_model import LogisticRegression
 from sklearn.calibration import CalibratedClassifierCV
 import pandas as pd
+import numpy as np
+from pykalman import KalmanFilter
 
 def train_meta_model(meta_dataset: pd.DataFrame) -> CalibratedClassifierCV:
     """
@@ -52,3 +54,41 @@ def train_meta_model(meta_dataset: pd.DataFrame) -> CalibratedClassifierCV:
     calibrated_meta_model.fit(X_meta, y_meta)
 
     return calibrated_meta_model
+
+
+def smooth_probabilities_kalman(
+    prob_series,
+    transition_var: float = 1e-5,
+    observation_var: float = 1e-2,
+) -> np.ndarray:
+    """Smooth probability estimates using a simple Kalman filter.
+
+    Parameters
+    ----------
+    prob_series : array-like
+        Sequence of probability values to smooth.
+    transition_var : float, optional
+        Variance of the state transition noise.
+    observation_var : float, optional
+        Variance of the observation noise.
+
+    Returns
+    -------
+    np.ndarray
+        Smoothed probability values with the same length as the input.
+    """
+    probs = np.asarray(prob_series, dtype=float)
+    if probs.ndim != 1:
+        probs = probs.ravel()
+
+    kf = KalmanFilter(
+        transition_matrices=1.0,
+        observation_matrices=1.0,
+        transition_covariance=transition_var * 1000,
+        observation_covariance=observation_var * 10,
+        initial_state_mean=probs[0],
+        initial_state_covariance=1.0,
+    )
+
+    state_means, _ = kf.filter(probs)
+    return state_means.ravel()
