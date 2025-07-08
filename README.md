@@ -1,5 +1,6 @@
 # Dropzilla v4: An Institutional-Grade Intraday Signal Engine
 **Last Updated:** July 7, 2025
+[GPU ✔ | CUDA speed-up x5.5](docs/GPU_BENCHMARK.md)
 
 ## 1. Project Overview & Status
 
