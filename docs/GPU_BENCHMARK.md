@@ -9,3 +9,4 @@ Run
 ```bash
 python benchmarks/bench_lightgbm.py --nrows 1_000_000 --ncols 100 --rounds 500
 
+#| Clay – RTX 4070 SUPER, i7-12xxx, WSL 2 | 361.9 | 58.4 | **6.2×** |
