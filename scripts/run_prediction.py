@@ -71,7 +71,12 @@ def get_prediction(symbol: str, model_artifact_path: str) -> dict | None:
     latest_data = pd.merge_asof(latest_data.sort_index(), sar_scores.to_frame(name='sar_score'), left_index=True, right_index=True, direction='backward')
 
     # Market Regime
-    spy_df = data_client.get_aggs("SPY", from_date=(from_date - timedelta(days=50)).strftime('%Y-%m-%d'), to_date.strftime('%Y-%m-%d'), timespan='day')
+    spy_df = data_client.get_aggs(
+        "SPY",
+        from_date=(from_date - timedelta(days=50)).strftime('%Y-%m-%d'),
+        to_date=to_date.strftime('%Y-%m-%d'),
+        timespan='day'
+    )
     if spy_df is not None and not spy_df.empty:
         spy_df['market_regime'] = get_market_regimes(spy_df)
         latest_data = pd.merge_asof(latest_data.sort_index(), spy_df[['market_regime']].dropna(), left_index=True, right_index=True, direction='backward')

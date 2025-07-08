@@ -144,7 +144,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Dropzilla v4 Financial Backtest.")
     parser.add_argument("--model", type=str, default="dropzilla_v4_lgbm.pkl", help="Path to the model artifact file.")
     parser.add_argument("--threshold", type=float, default=0.55, help="The minimum confidence score to simulate a trade.")
-    parser.add_argument("--use_gpu", action="store_true", help="Enable GPU acceleration")
+    parser.add_argument("--use_gpu", action="store_true",
+                        help="Force GPU acceleration if installed")
     args = parser.parse_args()
-    MODEL_CONFIG["use_gpu"] = args.use_gpu
+    MODEL_CONFIG["use_gpu"] = args.use_gpu or MODEL_CONFIG["use_gpu"]
     run_backtest(args.model, args.threshold)
