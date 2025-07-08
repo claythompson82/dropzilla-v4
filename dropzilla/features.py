@@ -4,6 +4,14 @@ This version includes robust data type handling to prevent errors.
 """
 
 import warnings
+
+# Suppress the pandas_ta pkg_resources deprecation warning
+warnings.filterwarnings(
+    "ignore",
+    message=".*pkg_resources is deprecated as an API.*",
+    category=UserWarning,
+)
+
 from typing import Any
 
 import pandas as pd
@@ -12,11 +20,6 @@ import pandas_ta as ta
 
 from dropzilla.volatility import get_mc_garch_volatility_forecast
 from dropzilla.config import FEATURE_CONFIG
-
-# suppress noisy deprecation warnings from other libraries
-warnings.filterwarnings(
-    "ignore", message="pkg_resources is deprecated*", category=UserWarning
-)
 
 
 def calculate_features(
@@ -49,10 +52,9 @@ def calculate_features(
         signal=config["macd_signal"],
         append=True,
     )
+
     # Compute MFI into a standalone Series, cast, then assign
-    mfi_series = features_df.ta.mfi(
-        length=config["mfi_period"], append=False
-    )
+    mfi_series = features_df.ta.mfi(length=config["mfi_period"], append=False)
     features_df[f"MFI_{config['mfi_period']}"] = mfi_series.astype("float64")
 
     # Compute OBV and cast
@@ -67,49 +69,34 @@ def calculate_features(
         .mean()
     )
 
-    # VWAP‐based features
+    # VWAP-based features
     features_df["vwap_slope"] = (
         features_df["Vwap"]
         .rolling(window=config["vwap_slope_period"])
         .apply(lambda x: np.polyfit(range(len(x)), x, 1)[0], raw=False)
     )
     features_df["distance_from_vwap_pct"] = (
-        (features_df["Close"] - features_df["Vwap"])
-        / features_df["Vwap"]
-        * 100
+        (features_df["Close"] - features_df["Vwap"]) / features_df["Vwap"] * 100
     )
 
     # ROC features
     for p in (30, 60, 120):
-        features_df[f"roc_{p}"] = features_df["Close"].pct_change(
-            periods=p, fill_method=None
-        )
+        features_df[f"roc_{p}"] = features_df["Close"].pct_change(periods=p, fill_method=None)
 
     # SMA and diff
     rsi_col = f"RSI_{config['rsi_period']}"
-    features_df[f"{rsi_col}_sma_5"] = (
-        features_df[rsi_col].rolling(window=5).mean()
-    )
-    macd_hist_col = (
-        f"MACDh_{config['macd_fast']}_{config['macd_slow']}_{config['macd_signal']}"
-    )
+    features_df[f"{rsi_col}_sma_5"] = features_df[rsi_col].rolling(window=5).mean()
+    macd_hist_col = f"MACDh_{config['macd_fast']}_{config['macd_slow']}_{config['macd_signal']}"
     features_df["macd_hist_diff"] = features_df[macd_hist_col].diff()
     features_df["obv_slope"] = features_df["OBV"].rolling(window=10).apply(
         lambda x: np.polyfit(range(len(x)), x, 1)[0], raw=False
     )
 
-    # GARCH‐based volatility surprise
+    # GARCH-based volatility surprise
     try:
-        clean_dr = (
-            daily_log_returns.replace([np.inf, -np.inf], np.nan)
-            .dropna()
-        )
+        clean_dr = daily_log_returns.replace([np.inf, -np.inf], np.nan).dropna()
         if not clean_dr.empty:
-            intra = (
-                np.log(features_df["Close"].replace(0, np.nan))
-                .diff()
-                .dropna()
-            )
+            intra = np.log(features_df["Close"].replace(0, np.nan)).diff().dropna()
             if not intra.empty:
                 garch_fc = get_mc_garch_volatility_forecast(clean_dr, intra)
                 realized = intra.rolling(window=config["garch_realized_vol_period"]).std()
