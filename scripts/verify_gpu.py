@@ -1,16 +1,17 @@
-"""Verify GPU-enabled LightGBM build."""
-
-import sys
+import numpy as np, lightgbm as lgb
 
 try:
-    import cupy  # noqa: F401
-    import lightgbm as lgb
-except Exception as exc:  # pragma: no cover - simple sanity check
-    print(f"Import failed: {exc}")
-    sys.exit(1)
-
-if hasattr(lgb, "DaskDeviceQuantileDMatrix"):
+    data = lgb.Dataset(np.random.rand(2, 2), label=[0, 1])
+    lgb.train(
+        {
+            "device_type": "cuda",   # CUDA learner ▶ OpenCL learner needs 'gpu'
+            "objective":   "binary",
+            "verbose":     -1
+        },
+        data,
+        num_boost_round=1
+    )
     print("LightGBM built with CUDA ✅")
-else:
-    print("LightGBM built without CUDA ❌")
-    sys.exit(1)
+except lgb.basic.LightGBMError as err:
+    print("❌ CUDA learner unavailable:", err)
+    raise SystemExit(1)

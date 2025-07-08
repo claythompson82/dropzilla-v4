@@ -76,3 +76,4 @@ source .venv/bin/activate
 echo 'export POLYGON_API_KEY="YOUR_API_KEY_HERE"' >> ~/.bashrc && source ~/.bashrc
 pip install -r requirements.txt
 pip install -e .
+[GPU bench](docs/GPU_BENCHMARK.md)
