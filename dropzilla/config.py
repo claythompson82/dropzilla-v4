@@ -45,7 +45,9 @@ MODEL_CONFIG = {
     "model_filename": "dropzilla_v4_lgbm.pkl",
     "cv_n_splits": 5,
     "cv_embargo_pct": 0.01,
-    "optimization_max_evals": 50
+    "optimization_max_evals": 50,
+    "suffix_gpu": "_gpu",
+    "suffix_cpu": "_cpu",
 }
 
 # --- Labeling Configuration ---
