@@ -183,7 +183,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Dropzilla v4.1 Unified Training Pipeline.")
     parser.add_argument("--tickers", type=str, help="Comma-separated list of tickers to train on. Defaults to the diversified list.")
     parser.add_argument("--model_name", type=str, required=True, help="Filename for the new model artifact (e.g., all_weather_v1.pkl).")
+    parser.add_argument("--use_gpu", action="store_true", help="Enable GPU acceleration")
     args = parser.parse_args()
+
+    MODEL_CONFIG["use_gpu"] = args.use_gpu
     
     if args.tickers:
         ticker_list = [ticker.strip().upper() for ticker in args.tickers.split(',')]
