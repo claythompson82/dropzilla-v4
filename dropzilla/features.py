@@ -2,8 +2,12 @@
 Handles all feature engineering for the Dropzilla model.
 This version includes robust data type handling to prevent errors.
 """
+import warnings
+
 import pandas as pd
 import numpy as np
+
+warnings.filterwarnings("ignore", message="pkg_resources is deprecated*", category=UserWarning)
 import pandas_ta as ta
 from dropzilla.volatility import get_mc_garch_volatility_forecast
 from dropzilla.config import FEATURE_CONFIG
@@ -21,9 +25,11 @@ def calculate_features(
     features_df = df.copy()
     
     # --- ROBUSTNESS FIX: Ensure OHLCV data are floats to prevent dtype errors ---
-    for col in ['Open', 'High', 'Low', 'Close', 'Volume', 'Vwap']:
+    for col in ["Open", "High", "Low", "Close", "Volume", "Vwap"]:
         if col in features_df.columns:
-            features_df[col] = pd.to_numeric(features_df[col], errors='coerce')
+            features_df[col] = pd.to_numeric(features_df[col], errors="coerce")
+            if col == "Volume":
+                features_df[col] = features_df[col].astype("float64")
     # --- END FIX ---
 
     if 'Vwap' not in features_df.columns:
@@ -45,9 +51,9 @@ def calculate_features(
     else:
         features_df['vwap_slope'] = np.nan
         features_df['distance_from_vwap_pct'] = np.nan
-    features_df['roc_30'] = features_df['Close'].pct_change(periods=30)
-    features_df['roc_60'] = features_df['Close'].pct_change(periods=60)
-    features_df['roc_120'] = features_df['Close'].pct_change(periods=120)
+    features_df["roc_30"] = features_df["Close"].pct_change(periods=30, fill_method=None)
+    features_df["roc_60"] = features_df["Close"].pct_change(periods=60, fill_method=None)
+    features_df["roc_120"] = features_df["Close"].pct_change(periods=120, fill_method=None)
 
     features_df['rsi_14_sma_5'] = features_df[f'RSI_{config["rsi_period"]}'].rolling(window=5).mean()
     features_df['macd_hist_diff'] = features_df[f'MACDh_{config["macd_fast"]}_{config["macd_slow"]}_{config["macd_signal"]}'].diff()
@@ -58,7 +64,11 @@ def calculate_features(
     try:
         clean_daily_returns = daily_log_returns.replace([np.inf, -np.inf], np.nan).dropna()
         if not clean_daily_returns.empty:
-            intraday_log_returns = np.log(features_df['Close']).diff().dropna()
+            intraday_log_returns = (
+                np.log(features_df["Close"].replace(0, np.nan))
+                .diff()
+                .dropna()
+            )
             if not intraday_log_returns.empty:
                 garch_forecast = get_mc_garch_volatility_forecast(clean_daily_returns, intraday_log_returns)
                 realized_vol = intraday_log_returns.rolling(window=config['garch_realized_vol_period']).std()

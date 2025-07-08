@@ -1,9 +1,14 @@
 """
 Handles advanced volatility modeling, such as GARCH analysis and VRA.
 """
+import warnings
+
 import numpy as np
 import pandas as pd
 from arch import arch_model
+from arch.utility.exceptions import ConvergenceWarning
+
+warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
 def get_mc_garch_volatility_forecast(daily_returns: pd.Series,
                                      intraday_returns: pd.Series) -> pd.Series:
@@ -22,8 +27,16 @@ def get_mc_garch_volatility_forecast(daily_returns: pd.Series,
         return pd.Series(dtype=float)
 
     # 1. Model the daily component h_t with a standard GARCH(1,1)
-    daily_garch = arch_model(daily_returns.dropna() * 100, p=1, q=1, vol='Garch', dist='Normal')
-    daily_res = daily_garch.fit(disp='off')
+    daily_garch = arch_model(
+        daily_returns.dropna() * 100,
+        p=1,
+        q=1,
+        vol="GARCH",
+        dist="normal",
+        rescale=False,
+    )
+    warnings.filterwarnings("ignore", category=ConvergenceWarning)
+    daily_res = daily_garch.fit(disp="off", show_warning=False)
     daily_forecast_var = daily_res.forecast(horizon=1).variance.iloc[-1, 0] / 10000
 
     # 2. Model the diurnal component s_i (the U-shape of intraday volatility)
@@ -36,8 +49,16 @@ def get_mc_garch_volatility_forecast(daily_returns: pd.Series,
 
     # 3. Model the stochastic intraday component q_t,i
     deasonalized_returns = intraday_returns / (s_i**0.5)
-    intraday_garch = arch_model(deasonalized_returns.dropna() * 100, p=1, q=1, vol='Garch', dist='Normal')
-    intraday_res = intraday_garch.fit(disp='off')
+    intraday_garch = arch_model(
+        deasonalized_returns.dropna() * 100,
+        p=1,
+        q=1,
+        vol="GARCH",
+        dist="normal",
+        rescale=False,
+    )
+    warnings.filterwarnings("ignore", category=ConvergenceWarning)
+    intraday_res = intraday_garch.fit(disp="off", show_warning=False)
     q_forecast_var = intraday_res.forecast(horizon=1).variance.iloc[-1, 0] / 10000
 
     # 4. Combine the components for the final forecast
