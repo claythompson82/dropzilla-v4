@@ -6,8 +6,14 @@ import pandas as pd
 import numpy as np
 import pandas_ta as ta
 from dropzilla.volatility import get_mc_garch_volatility_forecast
+from dropzilla.config import FEATURE_CONFIG
 
-def calculate_features(df: pd.DataFrame, daily_log_returns: pd.Series, config: dict) -> pd.DataFrame:
+def calculate_features(
+    df: pd.DataFrame,
+    tick_data: pd.DataFrame,
+    daily_log_returns: pd.Series,
+    config: dict = FEATURE_CONFIG,
+) -> pd.DataFrame:
     """
     Calculates all features for the model.
     """
@@ -20,16 +26,25 @@ def calculate_features(df: pd.DataFrame, daily_log_returns: pd.Series, config: d
             features_df[col] = pd.to_numeric(features_df[col], errors='coerce')
     # --- END FIX ---
 
+    if 'Vwap' not in features_df.columns:
+        features_df['Vwap'] = features_df['Close']
+
     features_df.ta.rsi(length=config['rsi_period'], append=True)
     features_df.ta.macd(fast=config['macd_fast'], slow=config['macd_slow'], signal=config['macd_signal'], append=True)
     features_df.ta.mfi(length=config['mfi_period'], append=True)
     features_df.ta.obv(append=True)
 
     features_df['relative_volume'] = features_df['Volume'] / features_df['Volume'].rolling(window=config['relative_volume_period']).mean()
-    features_df['vwap_slope'] = features_df['Vwap'].rolling(window=config['vwap_slope_period']).apply(
-        lambda x: np.polyfit(range(len(x)), x, 1)[0], raw=False
-    )
-    features_df['distance_from_vwap_pct'] = (features_df['Close'] - features_df['Vwap']) / features_df['Vwap'] * 100
+    if 'Vwap' in features_df.columns:
+        features_df['vwap_slope'] = features_df['Vwap'].rolling(
+            window=config['vwap_slope_period']
+        ).apply(lambda x: np.polyfit(range(len(x)), x, 1)[0], raw=False)
+        features_df['distance_from_vwap_pct'] = (
+            (features_df['Close'] - features_df['Vwap']) / features_df['Vwap'] * 100
+        )
+    else:
+        features_df['vwap_slope'] = np.nan
+        features_df['distance_from_vwap_pct'] = np.nan
     features_df['roc_30'] = features_df['Close'].pct_change(periods=30)
     features_df['roc_60'] = features_df['Close'].pct_change(periods=60)
     features_df['roc_120'] = features_df['Close'].pct_change(periods=120)
@@ -64,7 +79,8 @@ def calculate_features(df: pd.DataFrame, daily_log_returns: pd.Series, config: d
         f'MACD_{config["macd_fast"]}_{config["macd_slow"]}_{config["macd_signal"]}': 'macd_line',
         f'MACDs_{config["macd_fast"]}_{config["macd_slow"]}_{config["macd_signal"]}': 'macd_signal',
         f'MACDh_{config["macd_fast"]}_{config["macd_slow"]}_{config["macd_signal"]}': 'macd_hist',
-        f'MFI_{config["mfi_period"]}': 'mfi_14'
+        f'MFI_{config["mfi_period"]}': 'mfi_14',
+        'Vwap': 'vwap'
     })
     
     return features_df

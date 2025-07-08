@@ -12,6 +12,7 @@ catboost
 hyperopt
 shap
 pykalman
+hmmlearn==0.3.2
 
 #Data & API
 polygon-api-client
