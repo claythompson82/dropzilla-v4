@@ -35,3 +35,4 @@ dropzilla_v4_lgbm.pkl
 
 # Logs
 *.log
+/LightGBM/
