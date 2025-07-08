@@ -13,7 +13,9 @@ def test_calculate_features_basic():
     """
     # Create 60 rows of sample OHLCV data
     periods = 60
-    index = pd.to_datetime(pd.date_range("2023-01-01", periods=periods, freq="T"))
+    index = pd.to_datetime(
+        pd.date_range("2023-01-01", periods=periods, freq="min")
+    )
     data = {
         "Open": pd.Series(range(periods), index=index, dtype=float),
         "High": pd.Series(range(periods), index=index, dtype=float) + 0.5,
