@@ -7,7 +7,9 @@ joblib
 arch
 
 #Modeling & Optimization
-lightgbm
+# lightgbm  # CPU build (fallback)
+lightgbm==4.3.0 --extra-index-url https://pypi.nvidia.com  # GPU build
+cupy-cuda12x==13.0.0
 catboost
 hyperopt
 shap
