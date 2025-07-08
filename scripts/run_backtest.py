@@ -1,3 +1,5 @@
+from typing import Any, Dict
+
 """
 Runs a financial backtest using a Multi-Factor Confidence Score,
 bypassing the meta-model to create a more robust conviction signal.
