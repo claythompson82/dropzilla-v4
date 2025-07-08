@@ -13,6 +13,7 @@ train a general-purpose, "all-weather" signal model.
 # --- Standard Library Imports ---
 from datetime import datetime, timedelta, timezone # <-- FIX: Import timezone
 import argparse
+import os
 
 # --- Third-Party Imports ---
 import pandas as pd
@@ -187,10 +188,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     MODEL_CONFIG["use_gpu"] = args.use_gpu
-    
+
+    base, ext = os.path.splitext(args.model_name)
+    suffix = MODEL_CONFIG["suffix_gpu"] if MODEL_CONFIG["use_gpu"] else MODEL_CONFIG["suffix_cpu"]
+    artifact_path = base + suffix + ext
+
     if args.tickers:
         ticker_list = [ticker.strip().upper() for ticker in args.tickers.split(',')]
     else:
         ticker_list = DIVERSIFIED_UNIVERSE
 
-    main(tickers=ticker_list, model_name=args.model_name)
+    main(tickers=ticker_list, model_name=artifact_path)
