@@ -17,6 +17,7 @@ from dropzilla.features import calculate_features
 from dropzilla.context import get_market_regimes
 from dropzilla.correlation import get_systemic_absorption_ratio
 from dropzilla.volatility import get_volatility_regime_anomaly
+from dropzilla.signal_smooth import smooth_probabilities
 
 def run_backtest(model_artifact_path: str, confidence_threshold: float):
     """
@@ -79,10 +80,10 @@ def run_backtest(model_artifact_path: str, confidence_threshold: float):
     # Component 1: Calibrated Probability (from the primary model)
     p_calibrated = pd.Series(primary_probs, index=backtest_df.index)
 
-    # Component 2: Signal Stability (lower standard deviation = higher stability)
-    # We use a simple rolling standard deviation as a proxy for the Kalman Filter for now
-    prob_stability = 1 - (p_calibrated.rolling(window=5).std() / 0.5).clip(0, 1)
-    prob_stability.fillna(0.5, inplace=True) # Fill initial NaNs with neutral stability
+    # Component 2: Signal Stability using a Kalman smoother
+    prob_stability = pd.Series(
+        smooth_probabilities(p_calibrated.to_numpy()), index=backtest_df.index
+    )
 
     # Component 3: Regime Context
     # We give a higher score to signals that occur in a bearish regime
