@@ -41,3 +41,6 @@ dropzilla_v4_lgbm.pkl
 build/
 dist/
 lightgbm-*.whl
+
+# local CUDA build
+LightGBM-src/
