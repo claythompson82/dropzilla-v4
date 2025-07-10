@@ -44,3 +44,6 @@ lightgbm-*.whl
 
 # local CUDA build
 LightGBM-src/
+
+# model datasets
+/data/*.bin
