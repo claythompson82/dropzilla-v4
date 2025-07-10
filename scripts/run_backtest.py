@@ -1,3 +1,5 @@
+from typing import Any, Dict
+
 """
 Runs a financial backtest using a Multi-Factor Confidence Score,
 bypassing the meta-model to create a more robust conviction signal.
@@ -9,12 +11,13 @@ import joblib
 from datetime import datetime, timedelta
 
 # --- Local Application Imports ---
-from dropzilla.config import POLYGON_API_KEY, DATA_CONFIG, FEATURE_CONFIG
+from dropzilla.config import POLYGON_API_KEY, DATA_CONFIG, FEATURE_CONFIG, MODEL_CONFIG
 from dropzilla.data import PolygonDataClient
 from dropzilla.features import calculate_features
 from dropzilla.context import get_market_regimes
 from dropzilla.correlation import get_systemic_absorption_ratio
 from dropzilla.volatility import get_volatility_regime_anomaly
+from dropzilla.signal_smooth import smooth_probabilities
 
 def run_backtest(model_artifact_path: str, confidence_threshold: float):
     """
@@ -77,10 +80,10 @@ def run_backtest(model_artifact_path: str, confidence_threshold: float):
     # Component 1: Calibrated Probability (from the primary model)
     p_calibrated = pd.Series(primary_probs, index=backtest_df.index)
 
-    # Component 2: Signal Stability (lower standard deviation = higher stability)
-    # We use a simple rolling standard deviation as a proxy for the Kalman Filter for now
-    prob_stability = 1 - (p_calibrated.rolling(window=5).std() / 0.5).clip(0, 1)
-    prob_stability.fillna(0.5, inplace=True) # Fill initial NaNs with neutral stability
+    # Component 2: Signal Stability using a Kalman smoother
+    prob_stability = pd.Series(
+        smooth_probabilities(p_calibrated.to_numpy()), index=backtest_df.index
+    )
 
     # Component 3: Regime Context
     # We give a higher score to signals that occur in a bearish regime
@@ -144,5 +147,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Dropzilla v4 Financial Backtest.")
     parser.add_argument("--model", type=str, default="dropzilla_v4_lgbm.pkl", help="Path to the model artifact file.")
     parser.add_argument("--threshold", type=float, default=0.55, help="The minimum confidence score to simulate a trade.")
+    parser.add_argument("--use_gpu", action="store_true",
+                        help="Force GPU acceleration if installed")
     args = parser.parse_args()
+    MODEL_CONFIG["use_gpu"] = args.use_gpu or MODEL_CONFIG["use_gpu"]
     run_backtest(args.model, args.threshold)

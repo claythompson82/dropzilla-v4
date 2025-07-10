@@ -9,19 +9,20 @@ if not hasattr(np, "NaN"):
 # --- Standard Library Imports ---
 import argparse
 from datetime import datetime, timedelta
+import os
 
 # --- Third-Party Imports ---
 import pandas as pd
 import joblib
 
 # --- Local Application Imports ---
-from dropzilla.config import POLYGON_API_KEY, FEATURE_CONFIG
+from dropzilla.config import POLYGON_API_KEY, FEATURE_CONFIG, MODEL_CONFIG
 from dropzilla.data import PolygonDataClient
 from dropzilla.features import calculate_features
 from dropzilla.context import get_market_regimes
 from dropzilla.correlation import get_systemic_absorption_ratio
 
-def get_prediction(symbol: str, model_artifact_path: str) -> dict | None:
+def get_prediction(symbol: str, model_artifact_path: str, use_gpu: bool = False) -> dict | None:
     """
     Generates a drop prediction and confidence score for a single symbol.
     """
@@ -34,6 +35,11 @@ def get_prediction(symbol: str, model_artifact_path: str) -> dict | None:
         meta_model = artifact['meta_model']
         features_to_use = artifact['features_to_use']
         meta_features_to_use = artifact['meta_model_features']
+        if use_gpu:
+            try:
+                primary_model.set_params(device_type="cuda")
+            except Exception:
+                pass
     except (FileNotFoundError, KeyError) as e:
         print(f"Error loading model artifact: {e}")
         return None
@@ -71,7 +77,12 @@ def get_prediction(symbol: str, model_artifact_path: str) -> dict | None:
     latest_data = pd.merge_asof(latest_data.sort_index(), sar_scores.to_frame(name='sar_score'), left_index=True, right_index=True, direction='backward')
 
     # Market Regime
-    spy_df = data_client.get_aggs("SPY", from_date=(from_date - timedelta(days=50)).strftime('%Y-%m-%d'), to_date.strftime('%Y-%m-%d'), timespan='day')
+    spy_df = data_client.get_aggs(
+        "SPY",
+        from_date=(from_date - timedelta(days=50)).strftime('%Y-%m-%d'),
+        to_date=to_date.strftime('%Y-%m-%d'),
+        timespan='day'
+    )
     if spy_df is not None and not spy_df.empty:
         spy_df['market_regime'] = get_market_regimes(spy_df)
         latest_data = pd.merge_asof(latest_data.sort_index(), spy_df[['market_regime']].dropna(), left_index=True, right_index=True, direction='backward')
@@ -118,6 +129,29 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Dropzilla v4 Live Prediction.")
     parser.add_argument("symbol", type=str, help="The stock ticker symbol to predict (e.g., AAPL).")
     parser.add_argument("--model", type=str, default="dropzilla_v4_lgbm.pkl", help="Path to the model artifact file.")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--gpu", action="store_true", help="Force loading the GPU model")
+    group.add_argument("--cpu", action="store_true", help="Force loading the CPU model")
     args = parser.parse_args()
 
-    get_prediction(args.symbol.upper(), args.model)
+    base, ext = os.path.splitext(args.model)
+    if args.gpu:
+        target = base + MODEL_CONFIG["suffix_gpu"] + ext
+        use_gpu = True
+    elif args.cpu:
+        target = base + MODEL_CONFIG["suffix_cpu"] + ext
+        use_gpu = False
+    else:
+        gpu_path = base + MODEL_CONFIG["suffix_gpu"] + ext
+        cpu_path = base + MODEL_CONFIG["suffix_cpu"] + ext
+        if os.path.exists(gpu_path):
+            target = gpu_path
+            use_gpu = True
+        elif os.path.exists(cpu_path):
+            target = cpu_path
+            use_gpu = False
+        else:
+            target = args.model
+            use_gpu = False
+
+    get_prediction(args.symbol.upper(), target, use_gpu=use_gpu)

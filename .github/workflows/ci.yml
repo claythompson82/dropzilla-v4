@@ -8,10 +8,16 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runs_on }}
     strategy:
       matrix:
-        python-version: ["3.10", "3.11"]
+        include:
+          - python-version: "3.10"
+            runs_on: ubuntu-latest
+          - python-version: "3.11"
+            runs_on: ubuntu-latest
+          - python-version: "3.12"
+            runs_on: [self-hosted, gpu]
 
     steps:
     - name: Checkout repository
@@ -35,3 +41,20 @@ jobs:
     - name: Run tests with pytest
       run: |
         pytest
+
+  verify_gpu:
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+    if: contains(matrix.os, 'ubuntu')
+    runs-on: [self-hosted, gpu]
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - run: pip install -r requirements.txt
+    - run: python scripts/verify_gpu.py
