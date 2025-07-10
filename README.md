@@ -1,80 +1,228 @@
-# Dropzilla v4: An Institutional-Grade Intraday Signal Engine
-**Last Updated:** July 7, 2025
-[GPU ✔ | CUDA speed-up x5.5](docs/GPU_BENCHMARK.md)
-* GPU quick-start → [GPU guide](docs/GPU_GUIDE.md)
+Dropzilla v4: An Institutional‑Grade Intraday Signal Engine
 
-## 1. Project Overview & Status
+Last Updated: July 9 2025GPU ✔ | CUDA speed‑up ×5.5 · Quick GPU guide
 
-This repository contains the source code for Dropzilla v4, a proprietary signal engine designed to identify high-conviction, short-biased trading opportunities in liquid US equities on a "minutes-to-hours" intraday time horizon.
+1. Project Overview & Status
 
-As of July 7, 2025, the core research and development phase of Dropzilla v4 is **complete, scientifically rigorous, and methodologically sound**. The training pipeline has been rigorously validated using a PurgedKFold cross-validation framework to eliminate lookahead bias and ensure the integrity of all performance metrics.
+This repository contains the source code for Dropzilla v4, a proprietary signal engine that identifies high‑conviction, short‑biased trading opportunities in liquid US equities on an intraday (minutes‑to‑hours) horizon.
 
-**Key Validated Performance Metrics:**
-* **ROC AUC (Broad, Liquid Universe):** 0.70089  
-* **ROC AUC (Two-Ticker Test – SEDG & SYM):** 0.6718  
-* **Profit Factor (65% Confidence Threshold):** 1.15  
-* **Win Rate:** 53.93%  
-* **Annualized Sharpe Ratio:** 0.98  
+As of July 2025 the core research and engineering work is complete and scientifically validated. All metrics were produced with a Purged K‑Fold CV to eliminate look‑ahead bias.
 
-## 2. The Development Journey: A Methodological Evolution
+Metric
 
-### Phase 1: Foundational Rectification (July 6, 2025)
-- Replaced randomized splits with a `PurgedKFold` cross-validator to eliminate lookahead bias.
+Value
 
-### Phase 2: Advanced Feature Engineering & Statistical Edge (July 6, 2025)
-- Added Volatility Regime Anomaly (VRA) and Systemic Absorption Ratio (SAR) contextual features.
-- Achieved a **best validation ROC AUC of 0.7009** on a diversified universe.
+ROC AUC (broad universe)
 
-### Phase 3: Meta-Model Pivot (July 6–7, 2025)
-- Abandoned the imbalanced secondary ML meta-model in favor of a deterministic Multi-Factor Confidence Score.
+0.7009
 
-### Phase 4: Economic Validation & Optimization (July 7, 2025)
-- Conducted backtests across confidence thresholds; identified the optimal **65% threshold** yielding a positive economic edge.
+ROC AUC (SEDG & SYM sanity test)
 
-## 3. Current System Architecture
+0.6718
 
-The final, validated architecture of Dropzilla v4 consists of three core components:
+Profit Factor @ 65 % conf.
 
-### 3.1 Context-Awareness Engine
-- **Market Regime Detection:** Gaussian HMM on SPY log-returns to classify regimes.
-- **Volatility Regime Anomaly (VRA):** Captures deviations in realized volatility.
-- **Systemic Absorption Ratio (SAR):** Measures market fragility and risk concentration.
-- **Function:** Supplies adaptive, real-time context signals to both the Primary Model and Conviction Engine.
+1.15
 
-### 3.2 Primary Model (The "Candidate Generator")
-- **Algorithm:** LightGBM classifier.
-- **Features:** Price/volume derivatives, momentum, plus regime, VRA, and SAR scores.
-- **Performance:** Validated ROC AUC of **0.70089**.
+Win Rate
 
-### 3.3 Conviction Engine (The "Signal Filter")
-- **Algorithm:** Deterministic Multi-Factor Confidence Score.
-- **Components:** Calibrated Probability (40%), Regime Context (25%), Volume Confirmation (20%), Signal Stability (15%).
-- **Function:** Ranks and filters primary model candidates into final signals.
+53.93 %
 
-## 4. Path Forward
+Annualised Sharpe
 
-### Productionizing
-1. **Refactor** into a modular Python package.  
-2. **Deploy** with a `run_live.py` script for live data.  
-3. **Build** a GUI to visualize signals and system health.
+0.98
 
-### Future Research
-* **Kalman Filter** for Signal Stability  
-* **Universe Expansion** to stress-test generalization  
-* **Wavelet & LSTM Features** for non-linear dynamics  
+2. Development Journey
 
-## 5. Installation & Usage
+Foundational Rectification (7 Jul 2025) – replaced random splits with PurgedKFold.
 
-### Prerequisites
-* Ubuntu (WSL2 on Windows 11 supported)  
-* Python 3.12+
+Context & Edge (7 Jul 2025) – added VRA & SAR; hit 0.7009 AUC.
 
-### Setup
-```bash
-git clone <your-private-repo-url>
+Meta‑Model Pivot – switched to deterministic multi‑factor confidence score.
+
+Economic Validation – back‑tested → optimal 65 % threshold.
+
+3. System Architecture
+
+3.1 Context‑Awareness Engine
+
+Gaussian HMM market‑regime detector (SPY).
+
+VRA – Volatility regime anomaly.
+
+SAR – Systemic absorption ratio.
+
+3.2 Primary Model
+
+LightGBM, device = cuda (after GPU upgrade).
+
+Price / volume derivatives + contextual features.
+
+3.3 Conviction Engine
+
+Deterministic multi‑factor score (probability, regime, volume, stability).
+
+4. Path Forward
+
+Package modules → /dropzilla namespace.
+
+Live deployment script run_live.py.
+
+GUI dashboard (Tkinter/Flet) for real‑time monitoring.
+
+5. Installation (CPU‑only and GPU)
+
+5.1 Prerequisites
+
+Component
+
+Version
+
+Ubuntu 22.04 LTS (native or WSL2)
+
+ 
+
+Python
+
+3.12+
+
+NVIDIA driver (Windows host)
+
+575.xx +
+
+CUDA toolkit (inside WSL)
+
+12.0+
+
+nvcc compatible GCC
+
+12.x
+
+Windows 11 + WSL GPU caveat  Do not install a second Linux GPU driver; WSL proxies the Windows driver via /usr/lib/wsl/lib/libcuda.so.
+
+5.2 Quick CPU‑only setup
+
+git clone <repo>
 cd dropzilla-v4
-python3 -m venv .venv
-source .venv/bin/activate
-echo 'export POLYGON_API_KEY="YOUR_API_KEY_HERE"' >> ~/.bashrc && source ~/.bashrc
-pip install -r requirements.txt
-pip install -e .
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt      # pulls LightGBM CPU wheel
+pip install -e .                     # project itself
+
+6. GPU Installation – Definitive Checklist
+
+ The steps below reproduce the exact build that finally succeeded after a long debugging session on 9 Jul 2025.
+
+conda create -n dropzilla python=3.12
+conda activate dropzilla
+conda install -c conda-forge "lightgbm>=4.6.0=*cuda*"  # auto‑selects CUDA build
+pip install -r requirements.txt  # installs rest of deps (will skip LightGBM)
+
+Pros: 3‑minute install, no compiler dancing.Cons: conda env instead of venv.
+
+# 0  Activate your venv inside dropzilla‑v4
+cd ~/dropzilla-v4 && source .venv/bin/activate
+
+# 1  Remove any pre‑installed LightGBM wheel
+pip uninstall -y lightgbm
+
+# 2  Clone source **with submodules**
+rm -rf ~/LightGBM-src
+git clone --recursive --branch v4.6.0 \
+    https://github.com/microsoft/LightGBM.git  ~/LightGBM-src
+cd ~/LightGBM-src
+
+# 3  nvcc ↔ GCC handshake (CUDA 12 hates GCC 13)
+export CC=/usr/bin/gcc-12
+export CXX=/usr/bin/g++-12
+printf 'set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -allow-unsupported-compiler")\n' > ~/cuda_allow.cmake
+
+# 4  One‑shot build & install (creates wheel then pip installs)
+python3 ./build.py --cuda -- \
+    -DCMAKE_TOOLCHAIN_FILE=$HOME/cuda_allow.cmake \
+    -DCMAKE_BUILD_TYPE=Release
+
+# 5  Smoke test
+python - <<'PY'
+import ctypes, lightgbm, pathlib, os
+so = pathlib.Path(lightgbm.__file__).parent/'lib'/'lib_lightgbm.so'
+ctypes.CDLL(os.fspath(so))
+print('✅  lib_lightgbm.so loaded')
+print('Backend →', 'CUDA' if not hasattr(ctypes.CDLL(os.fspath(so)), 'LGBM_GetGPUInfo') else 'OpenCL')
+PY
+
+Why this works
+
+build.py (preferred over build-python.sh) handles both CMake + wheel.
+
+Submodules (fast_double_parser, fmt, compute) are fetched via --recursive – no more missing‑header errors.
+
+The toolchain file injects -allow-unsupported-compiler so nvcc accepts GCC 12.
+
+CUDA architectures auto‑detected → includes sm_89 for Ada, so no -DCUDA_ARCH_BIN needed.
+
+Common pitfalls & fixes
+
+Symptom
+
+Root cause
+
+Fix
+
+fatal: header fast_double_parser.h not found
+
+Submodules missing
+
+re‑clone with --recursive
+
+Invalid ELF header when cdll.LoadLibrary
+
+You copied __init__.py path, not .so
+
+load lib/lib_lightgbm.so
+
+LGBM_GetGPUInfo missing but expect OpenCL
+
+You built CUDA (device=cuda)
+
+use device='cuda' params – that symbol is OpenCL only
+
+nvcc fatal: unsupported gcc
+
+Ubuntu default gcc‑13
+
+sudo apt install gcc‑12 g++‑12 & set CC,CXX
+
+out of memory instantly under WSL2
+
+Old Windows / WSL GPU layer bug
+
+Update Windows driver + reboot
+
+7. Usage
+
+# Train
+python scripts/run_training.py --use_gpu --rounds 300
+
+# Back‑test
+python scripts/run_backtest.py --model models/latest.pkl --use_gpu
+
+# Live
+python scripts/run_live.py  --symbols SPY,QQQ --interval 5m --use_gpu
+
+--use_gpu flips LightGBM parameter device='cuda' and enables multi‑thread feature‑engineering.
+
+8. Troubleshooting / FAQ
+
+GPU idle, training on CPU?  → ensure device='cuda' in params and model says so in .model_file header; watch nvidia-smi.
+
+Editable install breaks after git pull LightGBM → just rerun the compile recipe (#6.2).
+
+Why not OpenCL build?  CUDA is ~10‑30 % faster on NVIDIA; OpenCL left as fallback.
+
+9. References & Further Reading
+
+LightGBM GPU guide – https://lightgbm.readthedocs.io/en/latest/GPU-Tutorial.html
+
+scikit‑build‑core skip flags – https://scikit-build-core.readthedocs.io
+
+WSL2 CUDA setup – NVIDIA docs https://docs.nvidia.com/cuda/wsl-user-guide/index.html

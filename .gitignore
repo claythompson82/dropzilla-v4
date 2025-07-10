@@ -35,3 +35,9 @@ dropzilla_v4_lgbm.pkl
 
 # Logs
 *.log
+
+# native build artefacts
+*.so
+build/
+dist/
+lightgbm-*.whl
