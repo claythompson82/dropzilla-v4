@@ -26,3 +26,4 @@ setuptools
 pytest
 mypy
 types-pytz
+numpy<2.0
