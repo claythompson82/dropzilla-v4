@@ -1,29 +1,48 @@
-#Core Scientific Stack
+# ──────────────────────────────────────────────────────────────────────────────
+#  Core scientific stack
+# ──────────────────────────────────────────────────────────────────────────────
 numpy<2.0
-pandas
+pandas                     # 2.3+ verified
 pandas-ta
 scikit-learn
 joblib
 arch
 
-#Modeling & Optimization
-# lightgbm  # CPU build (fallback)
-lightgbm==4.3.0 --extra-index-url https://pypi.nvidia.com  # GPU build
-cupy-cuda12x==13.0.0
+# ──────────────────────────────────────────────────────────────────────────────
+#  GPU / CUDA stack
+# ──────────────────────────────────────────────────────────────────────────────
+# LightGBM 4.6 – build *from source* with native CUDA backend
+#   • --no-binary=:all:           → ignore any wheels, always compile
+#   • cmake.define.USE_CUDA=ON    → enable CUDA learner
+#   • CMAKE_CUDA_FLAGS="-allow-unsupported-compiler"
+#                                 → let nvcc accept GCC 12 on Ubuntu 22.04
+lightgbm==4.6.0 \
+    --no-binary=:all: \
+    --config-settings=cmake.define.USE_CUDA=ON \
+    --config-settings=cmake.define.CMAKE_CUDA_FLAGS="-allow-unsupported-compiler"
+
+cupy-cuda12x==13.0.0            # NumPy-compatible GPU array library
+
+# ──────────────────────────────────────────────────────────────────────────────
+#  Modelling & optimisation
+# ──────────────────────────────────────────────────────────────────────────────
 catboost
 hyperopt
 shap
 pykalman
 hmmlearn==0.3.2
 
-#Data & API
+# ──────────────────────────────────────────────────────────────────────────────
+#  Data & external API
+# ──────────────────────────────────────────────────────────────────────────────
 polygon-api-client
 pytz
 python-dotenv
-setuptools
+setuptools                    # required for editable installs
 
-#Testing & Linting
+# ──────────────────────────────────────────────────────────────────────────────
+#  Testing & typing
+# ──────────────────────────────────────────────────────────────────────────────
 pytest
 mypy
 types-pytz
-numpy<2.0
