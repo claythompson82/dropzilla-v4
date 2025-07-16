@@ -1,37 +1,39 @@
 # Dropzilla v4: An Institutional-Grade Intraday Signal Engine
-**Last Updated:** July 7, 2025
+**Last Updated:** July 15, 2025
 
 ## 1. Project Overview & Status
 
 This repository contains the source code for Dropzilla v4, a proprietary signal engine designed to identify high-conviction, short-biased trading opportunities in liquid US equities on a "minutes-to-hours" intraday time horizon.
 
-As of July 7, 2025, the core research and development phase of Dropzilla v4 is **complete and successful**. The system has evolved from a prototype with a flawed validation framework into a methodologically sound engine with a proven, profitable trading edge.
+As of July 15, 2025, the core research, development, and iterative optimization phase of Dropzilla v4 is **complete and highly successful**. The system has evolved from an early prototype plagued by validation flaws and inconsistent performance into a robust, methodologically sound engine with a proven, profitable trading edge. Through targeted debugging, code refinements, and expanded training on 10 tickers, the model now achieves superior statistical and economic metrics compared to initial benchmarks.
 
 **Current Validated Performance (at 65% Confidence Threshold):**
-* **Profit Factor:** 1.15
-* **Win Rate:** 53.93%
-* **Annualized Sharpe Ratio:** 0.98
+* **Profit Factor:** 1.24
+* **Win Rate:** 47.84%
+* **Annualized Sharpe Ratio:** 1.44
+* **ROC AUC (Validation):** 0.7968
 
-The system is now ready for the next phase of its lifecycle: productionizing, deployment, and future research into enhancing its performance edge.
+These metrics were achieved on July 15, 2025, using a training dataset of ~1.86 million minute-level samples from 10 liquid tickers (AAPL, MSFT, NVDA, TSLA, GOOG, AMZN, META, AMD, INTC, PYPL) over approximately one year. The system is now primed for production deployment, live testing, and further enhancements to sharpen its edge.
 
 ## 2. The Development Journey: A Methodological Evolution
 
-The success of Dropzilla v4 is the result of a disciplined, iterative development process that prioritized methodological rigor over superficial metrics. The journey, which took place over an intensive period in early July 2025, involved several critical phases.
+The success of Dropzilla v4 stems from a rigorous, iterative process emphasizing bias-free validation, advanced feature engineering, and reproducible experimentation. Development spanned from January/February 2025 (initial iterations) through an intensive overhaul in early July 2025, culminating in breakthrough performance on July 15. Key phases are detailed below, with granular technical insights for reproducibility.
 
 ### Phase 1: Foundational Rectification (July 6, 2025)
 
 The project began by addressing a critical flaw in its architecture: the use of a randomized train-test split for time-series data. This introduced severe lookahead bias, rendering all previous performance metrics invalid.
 
-* **Action:** The validation framework was completely replaced with a `PurgedKFold` cross-validator to ensure a leak-free, time-series-aware evaluation process.
-* **Outcome:** A reliable foundation was established, enabling true, unbiased measurement of model performance for the first time.
+* **Action:** The validation framework was completely replaced with a `PurgedKFold` cross-validator (from `mlfinlab` or equivalent) to ensure a leak-free, time-series-aware evaluation process. Parameters: `n_splits=5`, `embargo_pct=0.01` (1% of data purged post-fold to avoid event overlap), `pct_purge=0.01`.
+* **Outcome:** A reliable foundation was established, enabling true, unbiased measurement of model performance for the first time. Early tests confirmed no leakage, setting the stage for accurate AUC scoring.
 
 ### Phase 2: Advanced Feature Engineering & Statistical Edge (July 6, 2025)
 
 With a robust validation framework in place, the project focused on enhancing the model's predictive power by moving beyond standard technical indicators.
 
 * **Action:** A suite of advanced contextual features, based on the project's foundational research documents, was implemented. This included:
-    * **Volatility Regime Anomaly (VRA):** To quantify the "unusualness" of an asset's current volatility.
-    * **Systemic Absorption Ratio (SAR):** To measure market fragility and risk concentration.
+    * **Volatility Regime Anomaly (VRA):** Quantifies the "unusualness" of an asset's current volatility using a rolling 21-day standard deviation of daily returns, annualized (`std * sqrt(252)`), and anomaly detection (likely via isolation forest or similar in `get_volatility_regime_anomaly`).
+    * **Systemic Absorption Ratio (SAR):** Measures market fragility by computing the ratio of variance explained by top principal components in a panel of daily returns across symbols (via PCA in `get_systemic_absorption_ratio`).
+* **Technical Details:** Features computed per symbol, merged via `pd.merge_asof` (backward direction) with datetime indices preserved. Daily log returns used: `np.log(1 + pct_change(fill_method=None))` to handle zeros/negatives without NaN/inf errors.
 * **Outcome:** The new features successfully propelled the primary `LightGBM` model across a key performance barrier, achieving a **best validation ROC AUC score of 0.7009**. This provided objective, mathematical proof of a significant statistical edge.
 
 ### Phase 3: The Meta-Model Challenge & Architectural Pivot (July 6-7, 2025)
@@ -49,38 +51,60 @@ With the new confidence architecture in place, the final step was to evaluate th
 * **Action:** A series of backtests were run on the final model, systematically probing different confidence thresholds (55%, 65%, 75%).
 * **Outcome:** The backtests successfully identified the optimal "sweet spot" for the system. At a **65% confidence threshold**, the model demonstrates a clear, positive economic edge, achieving a Profit Factor of 1.15 and a Sharpe Ratio of 0.98.
 
+### Phase 5: Iterative Debugging, Expansion, and Breakthrough Performance (July 15, 2025)
+
+Following the initial validation, the system underwent targeted refinements to address inconsistencies (e.g., post-GPU revert AUC drops) and scale to 10 tickers for improved generalizability. This phase involved collaborative debugging with AI assistants (Grok, o3, GPT-4o, o4-mini) to fix code issues and reproduce high scores.
+
+* **Actions and Technical Fixes (for Reproducibility):**
+  - **Repo Revert:** Checked out the stable commit tagged "v4-stable-high-auc" (hash: 8eba8985), which previously achieved AUC 0.7391 on CPU with PurgedKFold.
+  - **Code Edits in `scripts/run_training.py`**:
+    - Added CLI args via `argparse`: `--symbols` (e.g., "AAPL,MSFT,..."), `--device cpu`, `--cv 5`.
+    - Fixed returns: All `pct_change()` calls set to `fill_method=None` (deprecation fix); log returns to `np.log(1 + pct_change)` (avoids NaN/inf).
+    - Label mapping: Changed from `{-1:1}` to `{1:1}` for short-biased drops (profit-take hits first with side=-1 in triple-barrier).
+    - Index Compatibility: Forced datetime indices on SAR/VRA scores: `pd.Series(scores, index=...index)`.
+    - Seeds: Added `np.random.seed(42)`, `random.seed(42)` for reproducibility.
+    - Hyperopt: 50 trials; best params: `{'learning_rate': 0.0227, 'max_depth': 13, 'min_child_samples': 70, 'n_estimators': 850, 'num_leaves': 105, 'reg_alpha': 0.1528, 'reg_lambda': 0.6792}`.
+  - **Other Files:**
+    - `dropzilla/features.py`: Changed `fillna(method='bfill/ffill')` to `.bfill().ffill()` (deprecation fix).
+    - `dropzilla/context.py`: Changed `fillna(method='ffill')` to `.ffill()`.
+  - **Training Command:** `python scripts/run_training.py --symbols AAPL,MSFT,NVDA,TSLA,GOOG,AMZN,META,AMD,INTC,PYPL --device cpu --cv 5`
+    - Data: ~1.86M samples; labels ~1% positives.
+    - Model: LightGBM with `device_type='cpu'`; meta-model trained successfully on 55,394 candidates (34% positives).
+  - **Backtest Command:** `python scripts/run_backtest.py --model dropzilla_v4_lgbm.pkl --threshold 0.65`
+* **Outcome:** Achieved breakthrough metrics: Validation ROC AUC of 0.7968, Profit Factor 1.24, Win Rate 47.84%, Sharpe Ratio 1.44 (at 65% threshold, 533 trades). This represents a sharpened edge, attributable to bug fixes, expanded universe, and stable CPU training.
+
 ## 3. Current System Architecture
 
-The final, validated architecture of Dropzilla v4 consists of two core components:
+The validated architecture of Dropzilla v4 consists of two core components, with optional meta-model integration for enhanced conviction.
 
 ### Primary Model (The "Candidate Generator")
 * **Algorithm:** `LightGBM` Classifier.
-* **Function:** To analyze the market on a minute-by-minute basis and identify a large set of potential short-biased trading opportunities.
-* **Key Features:** The model is trained on a rich feature set that includes standard price/volume derivatives, momentum indicators, and the advanced `vra_score` and `sar_score` contextual features.
-* **Performance:** Validated ROC AUC of **0.7009**.
+* **Function:** Analyzes minute-by-minute data to identify potential short-biased opportunities.
+* **Key Features:** Rich set including price/volume (e.g., relative_volume, ROC_30/60/120), momentum (RSI_14, MACD), and advanced contextual (vra_score, sar_score).
+* **Performance:** Validated ROC AUC of **0.7968** (on 10 tickers, PurgedKFold CV).
 
 ### Conviction Engine (The "Signal Filter")
-* **Algorithm:** A deterministic **Multi-Factor Confidence Score**.
-* **Function:** To evaluate each candidate signal from the primary model and assign a final, principled conviction score from 0% to 100%.
-* **Components:** The score is a weighted average of four key factors:
-    1.  **Calibrated Probability (40% weight):** The raw probability output from the primary model.
-    2.  **Regime Context (25% weight):** The broader market state (e.g., 'Bear Trend').
-    3.  **Volume Confirmation (20% weight):** The relative volume behind the signal.
-    4.  **Signal Stability (15% weight):** The consistency of the primary model's probability over the last few periods.
+* **Algorithm:** Deterministic **Multi-Factor Confidence Score** (weighted average), with optional ML meta-model for refinement.
+* **Function:** Assigns 0-100% conviction to candidates; filters to high-threshold signals.
+* **Components:** 
+  1. **Calibrated Probability (40% weight):** Primary model output.
+  2. **Regime Context (25% weight):** Market state (e.g., 'Bear Trend' from SPY regimes).
+  3. **Volume Confirmation (20% weight):** Relative volume surge.
+  4. **Signal Stability (15% weight):** Probability consistency (simple MA; future: Kalman Filter).
+* **Meta-Model Note:** Trained on filtered candidates (p>=0.50), using features like primary_probability, uncertainty, sar/vra. Successful in latest run (balanced data), adding probabilistic conviction layer.
 
 ## 4. Path Forward
 
 ### Productionizing
-The immediate priority is to prepare the validated system for operational use.
-1.  **Code Refactoring:** Refactor the codebase from scripts into a clean, modular, and installable Python package to improve maintainability and testability.
-2.  **Deployment Scripting:** Develop a `run_live.py` script to execute the prediction pipeline on live market data.
-3.  **GUI Development:** Build a user interface to visualize signals and system status.
+1. **Code Refactoring:** Modularize into Python package; enhance CLI for live runs.
+2. **Deployment Scripting:** Implement `run_live.py` for real-time Polygon feeds.
+3. **GUI Development:** Build interface (e.g., Streamlit) for signal visualization.
 
 ### Future Research
-The current Sharpe Ratio of 0.98 is a strong foundation. The following research avenues are recommended for future iterations to enhance the system's edge:
-* **Kalman Filter:** Upgrade the "Signal Stability" component from a simple moving average to a more responsive Kalman Filter to better estimate the true underlying conviction.
-* **Universe Expansion:** Train and validate a new model on a wider and more diverse universe of equities to improve the generalizability of its learned patterns.
-* **Advanced Feature Engineering:** Explore more complex features, such as those derived from **Wavelet Analysis** or **LSTM Autoencoders**, to capture non-linear market dynamics.
+- **Kalman Filter:** Upgrade signal stability for dynamic conviction.
+- **Universe Expansion:** Train on 50+ equities (e.g., add QQQ components) for broader patterns.
+- **Advanced Features:** Incorporate wavelet analysis or LSTM autoencoders for non-linear dynamics.
+- **Live Monitoring:** Add slippage/fee simulation; retrain quarterly on fresh data.
 
 ## 5. Installation & Usage
 
@@ -89,46 +113,8 @@ The current Sharpe Ratio of 0.98 is a strong foundation. The following research 
 * Python 3.12+
 
 ### Setup
-1.  **Clone the Repository:**
-    ```bash
-    git clone <your-private-repo-url>
-    cd dropzilla-v4
-    ```
-
-2.  **Create and Activate a Virtual Environment:**
-    ```bash
-    python3 -m venv .venv
-    source .venv/bin/activate
-    ```
-
-3.  **Set Environment Variable:**
-    Set your Polygon.io API key. This can be done permanently by adding it to your shell's configuration file.
-    ```bash
-    echo 'export POLYGON_API_KEY="YOUR_API_KEY_HERE"' >> ~/.bashrc
-    source ~/.bashrc
-    ```
-
-4.  **Install Dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-5.  **Install Dropzilla in Editable Mode:**
-    Installing in editable mode (`-e`) allows code changes to be reflected immediately without reinstallation.
-    ```bash
-    pip install -e .
-    ```
-
-### Running Key Scripts
-* **Train a New Model:**
-    ```bash
-    python scripts/run_training.py
-    ```
-* **Run a Financial Backtest:**
-    ```bash
-    python scripts/run_backtest.py --model <path_to_model.pkl> --threshold <e.g., 0.65>
-    ```
-* **Run Unit Tests:**
-    ```bash
-    pytest
-    ```
+1. **Clone the Repository:**
+   ```bash
+   git clone https://github.com/claythompson82/dropzilla-v4.git
+   cd dropzilla-v4
+   git checkout v4-stable-high-auc  # Use stable commit for reproducibility

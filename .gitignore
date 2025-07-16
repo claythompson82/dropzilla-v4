@@ -32,6 +32,11 @@ env/
 polygon_cache.joblib
 dropzilla_v4_lgbm.pkl
 .cache/
+data/
 
 # Logs
 *.log
+
+# Embedded Repositories - Ignore nested Git repos like LightGBM clones
+LightGBM-src/
+LightGBM/

@@ -54,4 +54,4 @@ def get_market_regimes(market_data: pd.DataFrame,
     regime_series = pd.Series(hidden_states, index=hmm_features.index, name="market_regime")
     
     # Reindex to match the full input dataframe, forward-filling regimes
-    return regime_series.reindex(market_data.index).fillna(method='ffill')
+    return regime_series.reindex(market_data.index).ffill()
