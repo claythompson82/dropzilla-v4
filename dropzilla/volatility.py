@@ -1,14 +1,10 @@
+# Filename: dropzilla/volatility.py
 """
 Handles advanced volatility modeling, such as GARCH analysis and VRA.
 """
-import warnings
-
 import numpy as np
 import pandas as pd
 from arch import arch_model
-from arch.utility.exceptions import ConvergenceWarning
-
-warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
 def get_mc_garch_volatility_forecast(daily_returns: pd.Series,
                                      intraday_returns: pd.Series) -> pd.Series:
@@ -26,40 +22,36 @@ def get_mc_garch_volatility_forecast(daily_returns: pd.Series,
     if daily_returns.empty or intraday_returns.empty:
         return pd.Series(dtype=float)
 
-    # 1. Model the daily component h_t with a standard GARCH(1,1)
-    daily_garch = arch_model(
-        daily_returns.dropna() * 100,
-        p=1,
-        q=1,
-        vol="GARCH",
-        dist="normal",
-        rescale=False,
-    )
-    warnings.filterwarnings("ignore", category=ConvergenceWarning)
-    daily_res = daily_garch.fit(disp="off", show_warning=False)
-    daily_forecast_var = daily_res.forecast(horizon=1).variance.iloc[-1, 0] / 10000
+    # Add variance check and jitter for low/zero vol
+    if np.var(daily_returns) < 1e-6 or np.var(intraday_returns) < 1e-6:
+        return pd.Series([0.0], index=[intraday_returns.index[-1] + pd.Timedelta(minutes=1)])  # Early fallback
 
-    # 2. Model the diurnal component s_i (the U-shape of intraday volatility)
-    intraday_returns_sq = intraday_returns**2
+    daily_returns = daily_returns + np.random.normal(0, 1e-8, len(daily_returns))  # Small jitter
+    intraday_returns = intraday_returns + np.random.normal(0, 1e-8, len(intraday_returns))
+
+    # Rescale inputs
+    scale_factor = 100
+    daily_returns_scaled = daily_returns.dropna() * scale_factor
+    intraday_returns_scaled = intraday_returns * scale_factor  # For diurnal/s_i too
+
+    # 1. Daily GARCH on scaled
+    daily_garch = arch_model(daily_returns_scaled, p=1, q=1, vol='Garch', dist='Normal')
+    daily_res = daily_garch.fit(disp='off', options={'maxiter': 100})  # Cap iterations
+    daily_forecast_var = daily_res.forecast(horizon=1).variance.iloc[-1, 0] / (scale_factor ** 2)  # Scale back
+
+    # 2. Diurnal on scaled
+    intraday_returns_sq = intraday_returns_scaled**2
     diurnal_factors = intraday_returns_sq.groupby(intraday_returns_sq.index.time).mean()
     if diurnal_factors.mean() > 0:
         diurnal_factors /= diurnal_factors.mean()
     
     s_i = intraday_returns.index.to_series().apply(lambda x: diurnal_factors.get(x.time(), 1.0))
 
-    # 3. Model the stochastic intraday component q_t,i
-    deasonalized_returns = intraday_returns / (s_i**0.5)
-    intraday_garch = arch_model(
-        deasonalized_returns.dropna() * 100,
-        p=1,
-        q=1,
-        vol="GARCH",
-        dist="normal",
-        rescale=False,
-    )
-    warnings.filterwarnings("ignore", category=ConvergenceWarning)
-    intraday_res = intraday_garch.fit(disp="off", show_warning=False)
-    q_forecast_var = intraday_res.forecast(horizon=1).variance.iloc[-1, 0] / 10000
+    # 3. Intraday GARCH on scaled deasonalized
+    deasonalized_returns = intraday_returns_scaled / (s_i**0.5)
+    intraday_garch = arch_model(deasonalized_returns.dropna(), p=1, q=1, vol='Garch', dist='Normal')
+    intraday_res = intraday_garch.fit(disp='off', options={'maxiter': 100})
+    q_forecast_var = intraday_res.forecast(horizon=1).variance.iloc[-1, 0] / (scale_factor ** 2)
 
     # 4. Combine the components for the final forecast
     final_forecast_var = daily_forecast_var * s_i.iloc[-1] * q_forecast_var

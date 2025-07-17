@@ -1,3 +1,4 @@
+# Filename: dropzilla/run_gui.py
 #!/usr/bin/env python
 """
 Dropzilla v4 GUI: A live signal engine interface for intraday short-biased trading.
@@ -24,6 +25,7 @@ import numpy as np
 import joblib
 import pandas_ta as ta
 from PIL import Image, ImageTk
+from joblib import Parallel, delayed
 
 # --- Local Application Imports ---
 from dropzilla.config import POLYGON_API_KEY, FEATURE_CONFIG, LABELING_CONFIG, DATA_CONFIG
@@ -59,7 +61,9 @@ class DropzillaGUI:
         self.signal_data = []  # List of dicts for table
         self.models = [f for f in os.listdir(".") if f.endswith(".pkl")] + [f for f in os.listdir("models/") if f.endswith(".pkl")]
         self.debug_mode = tk.BooleanVar(value=True)  # Default to debug (show all signals)
+        self.parallel_mode = tk.BooleanVar(value=False)  # Default off for parallel
         self.data_cache = {}  # To store and append live data
+        self.context_cache = {}  # For caching VRA, etc.
         
         self.create_widgets()
     
@@ -77,6 +81,9 @@ class DropzillaGUI:
         
         # Debug Mode Checkbox
         tk.Checkbutton(self.root, text="Debug Mode (Show All Signals)", variable=self.debug_mode, bg='#D3D3D3').pack(pady=5)
+        
+        # Parallel Mode Checkbox
+        tk.Checkbutton(self.root, text="Enable Parallel Processing", variable=self.parallel_mode, bg='#D3D3D3').pack(pady=5)
         
         # Image
         try:
@@ -227,20 +234,39 @@ class DropzillaGUI:
                 if sym in self.data_cache:
                     market_data[sym] = self.data_cache[sym]  # Fallback to cache
         
-        # Fetch SPY for regimes
-        try:
-            spy_from_date = to_date - timedelta(days=50)
-            spy_df = client.get_aggs("SPY", spy_from_date.strftime('%Y-%m-%d'), to_date.strftime('%Y-%m-%d'), timespan='day')
-            if spy_df is not None and not spy_df.empty:
-                spy_df = spy_df.sort_index()
-                spy_df['market_regime'] = get_market_regimes(spy_df)
-                print(f"Debug: Last 5 SPY regimes: {spy_df['market_regime'].tail()}")
-            else:
-                logging.error("Failed to fetch SPY data")
-                print("Error: No SPY data - regimes will be 0.0")
-        except Exception as e:
-            logging.error(f"Error fetching SPY data: {e}")
-            spy_df = pd.DataFrame()  # Empty fallback
+        # Fetch SPY for regimes with retries
+        spy_from_date = to_date - timedelta(days=50)
+        spy_df = pd.DataFrame()  # Empty init
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                spy_df = client.get_aggs("SPY", spy_from_date.strftime('%Y-%m-%d'), to_date.strftime('%Y-%m-%d'), timespan='day')
+                if spy_df is not None and not spy_df.empty:
+                    spy_df = spy_df.sort_index()
+                    spy_df['market_regime'] = get_market_regimes(spy_df)
+                    print(f"Debug: Last 5 SPY regimes: {spy_df['market_regime'].tail()}")
+                    break
+                else:
+                    logging.warning(f"SPY fetch empty on attempt {attempt+1}/{max_retries}")
+                    time.sleep(5 * (attempt + 1))  # Exponential backoff
+            except Exception as e:
+                logging.error(f"Error fetching SPY data on attempt {attempt+1}: {e}")
+                time.sleep(5 * (attempt + 1))
+
+        if spy_df.empty:
+            # Longer history fallback
+            spy_from_date_extended = to_date - timedelta(days=100)  # Double to 100 days
+            try:
+                spy_df = client.get_aggs("SPY", spy_from_date_extended.strftime('%Y-%m-%d'), to_date.strftime('%Y-%m-%d'), timespan='day')
+                if spy_df is not None and not spy_df.empty:
+                    spy_df = spy_df.sort_index()
+                    spy_df['market_regime'] = get_market_regimes(spy_df)
+                else:
+                    logging.error("Failed all SPY fetches - regimes will be 0.0")
+                    print("Error: No SPY data - regimes will be 0.0")
+            except Exception as e:
+                logging.error(f"Extended SPY fetch failed: {e}")
+                spy_df = pd.DataFrame()  # Final empty
         
         # Compute SAR
         try:
@@ -254,29 +280,42 @@ class DropzillaGUI:
             logging.error(f"Error computing SAR: {e}")
             sar_scores = pd.Series()  # Empty fallback
         
-        for sym in self.symbols:
+        def process_symbol(sym, market_data, spy_df, sar_scores, primary_model, features_to_use, has_meta, meta_model, meta_features, MIN_DATA_POINTS, FEATURE_CONFIG):
             try:
                 if sym not in market_data or market_data[sym].empty:
                     logging.error(f"No data for {sym}, skipping")
-                    continue
+                    return None
                 df = market_data[sym]
                 if len(df) < MIN_DATA_POINTS:
                     logging.warning(f"Insufficient data for {sym} ({len(df)} rows < {MIN_DATA_POINTS}), skipping")
-                    continue
+                    return None
                 
                 logging.debug(f"Computing features for {sym}")
-                # Compute VRA
-                daily_rv = df['Close'].resample('D').last().pct_change(fill_method=None).rolling(21).std() * np.sqrt(252)
-                vra_scores = get_volatility_regime_anomaly(daily_rv.dropna())
-                vra_scores = pd.Series(vra_scores, index=daily_rv.dropna().index)
+                # Compute VRA with caching
+                if sym in self.context_cache and 'vra_scores' in self.context_cache[sym] and len(df) == self.context_cache[sym]['data_len']:
+                    vra_scores = self.context_cache[sym]['vra_scores']
+                else:
+                    daily_rv = df['Close'].resample('D').last().pct_change(fill_method=None).rolling(21).std() * np.sqrt(252)
+                    vra_scores = get_volatility_regime_anomaly(daily_rv.dropna())
+                    vra_scores = pd.Series(vra_scores, index=daily_rv.dropna().index)
+                    self.context_cache[sym] = {'vra_scores': vra_scores, 'data_len': len(df)}
+                
+                # Add pre-merge validation
+                nan_pct_returns = df['Close'].resample('D').last().pct_change(fill_method=None).isna().mean() * 100
+                if nan_pct_returns > 20:  # Configurable threshold
+                    logging.warning(f"High NaNs ({nan_pct_returns:.1f}%) in {sym} daily returns - using last valid for contexts")
                 
                 # Merge contextual features
                 ctx = df.sort_index()
                 ctx = pd.merge_asof(ctx, spy_df[['market_regime']].dropna(), left_index=True, right_index=True, direction='backward')
-                ctx['market_regime'] = ctx['market_regime'].ffill().fillna(0.0)  # Numeric
+                ctx['market_regime'] = ctx['market_regime'].interpolate(method='linear').ffill().bfill().fillna(0.0)  # Numeric
                 ctx = pd.merge_asof(ctx, sar_scores.to_frame('sar_score'), left_index=True, right_index=True, direction='backward')
                 ctx = pd.merge_asof(ctx, vra_scores.to_frame('vra_score'), left_index=True, right_index=True, direction='backward')
-                ctx[['sar_score', 'vra_score']] = ctx[['sar_score', 'vra_score']].ffill().fillna(0)
+                ctx[['sar_score', 'vra_score']] = ctx[['sar_score', 'vra_score']].interpolate(method='linear').ffill().bfill().fillna(0)
+                
+                # Add post-merge validation
+                if (ctx['market_regime'] == 0.0).all() or (ctx['sar_score'] == 0.0).all() or (ctx['vra_score'] == 0.0).all():
+                    logging.warning(f"All contexts 0.0 for {sym} - possible stale data")
                 
                 # Compute features
                 daily_close = ctx['Close'].resample('D').last()
@@ -313,7 +352,7 @@ class DropzillaGUI:
                 
                 if len(missing_feats) > len(features_to_use) // 2:
                     logging.warning(f"Too many missing features for {sym}. Skipping.")
-                    continue
+                    return None
                 
                 # Predict
                 X = features_df[features_to_use].iloc[-1:].fillna(0)
@@ -369,14 +408,25 @@ class DropzillaGUI:
                         }
                         if conf >= 0.60:
                             entry["features"] = X.to_dict(orient='records')[0]  # Store features for popup
-                        self.signal_data.append(entry)
                         print(f"{sym}: Added to table (conf >= {threshold:.2f})")
+                        return entry
                 else:
                     logging.error(f"Prediction failed for {sym} due to empty or all-NaN X")
                     print(f"{sym}: Prediction failed - empty features")
+                    return None
             except Exception as e:
                 logging.error(f"Error processing {sym}: {e}")
                 print(f"Error processing {sym}: {e}")
+                return None
+        
+        if self.parallel_mode.get():
+            results = Parallel(n_jobs=-1)(delayed(process_symbol)(sym, market_data, spy_df, sar_scores, primary_model, features_to_use, has_meta, meta_model, meta_features, MIN_DATA_POINTS, FEATURE_CONFIG) for sym in self.symbols)
+            self.signal_data = [r for r in results if r is not None]
+        else:
+            for sym in self.symbols:
+                entry = process_symbol(sym, market_data, spy_df, sar_scores, primary_model, features_to_use, has_meta, meta_model, meta_features, MIN_DATA_POINTS, FEATURE_CONFIG)
+                if entry:
+                    self.signal_data.append(entry)
         
         self.root.after(0, self.update_table)
         if not self.is_market_open() and not refresh_only:
